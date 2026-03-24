@@ -111,10 +111,6 @@ function Navbar({ onZoomToNode }) {
             <ul
               tabIndex={0}
               className="menu menu-sm dropdown-content bg-base-100 rounded-box z-1 mt-3 w-56 p-2 shadow">
-              <li className="menu-title text-xs opacity-50 px-2 pt-1 pb-0">
-                Signed in as {currentUser.name}
-              </li>
-              <div className="divider my-0" />
               {users.map((user) => (
                 <li key={user.id}>
                   <a
@@ -134,9 +130,6 @@ function Navbar({ onZoomToNode }) {
                   </a>
                 </li>
               ))}
-              <div className="divider my-0" />
-              <li><a>Settings</a></li>
-              <li><a>Logout</a></li>
             </ul>
           </div>
         </div>

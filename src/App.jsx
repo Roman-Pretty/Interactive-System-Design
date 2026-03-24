@@ -195,7 +195,7 @@ function App() {
         if (dragEdgeRef.current) {
           canvas.style.cursor = 'crosshair'
         } else if (near) {
-          canvas.style.cursor = 'cell'
+          canvas.style.cursor = 'crosshair'
         } else {
           canvas.style.cursor = ''
         }
@@ -715,7 +715,7 @@ function App() {
             nodeLabel={() => ''}
             nodePointerAreaPaint={(node, color, ctx) => {
               ctx.beginPath()
-              ctx.arc(node.x, node.y, 28, 0, 2 * Math.PI)
+              ctx.arc(node.x, node.y, 34, 0, 2 * Math.PI)
               ctx.fillStyle = color
               ctx.fill()
             }}
@@ -896,8 +896,11 @@ function App() {
             }
             return (
               <div
-                className="absolute z-40"
+                className="absolute z-40 pointer-events-none"
                 style={{ left: commentTooltipPos.x - 40, top: commentTooltipPos.y - 40, padding: 40 }}
+              >
+              <div
+                className="pointer-events-auto bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-80 overflow-y-auto"
                 onMouseEnter={() => {
                   if (tooltipHideTimeoutRef.current) {
                     clearTimeout(tooltipHideTimeoutRef.current)
@@ -911,9 +914,6 @@ function App() {
                   setTooltipReplyingTo(null)
                   setTooltipReplyText('')
                 }}
-              >
-              <div
-                className="bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-80 overflow-y-auto"
               >
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full bg-warning/15 flex items-center justify-center">
