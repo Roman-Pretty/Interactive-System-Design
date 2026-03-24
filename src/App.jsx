@@ -896,10 +896,9 @@ function App() {
             }
             return (
               <div
-                className="absolute bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 z-40 w-80 max-h-80 overflow-y-auto"
-                style={{ left: commentTooltipPos.x, top: commentTooltipPos.y }}
+                className="absolute z-40"
+                style={{ left: commentTooltipPos.x - 40, top: commentTooltipPos.y - 40, padding: 40 }}
                 onMouseEnter={() => {
-                  // Cancel the hide timeout and pin
                   if (tooltipHideTimeoutRef.current) {
                     clearTimeout(tooltipHideTimeoutRef.current)
                     tooltipHideTimeoutRef.current = null
@@ -912,6 +911,9 @@ function App() {
                   setTooltipReplyingTo(null)
                   setTooltipReplyText('')
                 }}
+              >
+              <div
+                className="bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-80 overflow-y-auto"
               >
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full bg-warning/15 flex items-center justify-center">
@@ -1000,6 +1002,7 @@ function App() {
                     )
                   })}
                 </div>
+              </div>
               </div>
             )
           })()}
