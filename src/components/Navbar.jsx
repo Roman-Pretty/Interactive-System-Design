@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link } from 'lucide-react'
+import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 
-function Navbar({ onZoomToNode }) {
+function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
   const { users, currentUser, setCurrentUser, nodes, comments, unreadComments, markCommentRead } = useGraph()
 
   // Share menu state
@@ -40,18 +40,21 @@ function Navbar({ onZoomToNode }) {
     <header>
       <div className="navbar bg-base-100 border-b border-base-300">
         <div className="navbar-start">
-          <div className="dropdown">
-            <div tabIndex={0} role="button" className="btn btn-ghost btn-circle">
-              <Menu className="h-5 w-5" />
-            </div>
-            <ul
-              tabIndex={0}
-              className="menu menu-sm dropdown-content bg-base-100 rounded-box z-1 mt-3 w-52 p-2 shadow">
-              <li><a>Homepage</a></li>
-              <li><a>Portfolio</a></li>
-              <li><a>About</a></li>
-            </ul>
-          </div>
+          <AnimatePresence>
+            {!sidebarOpen && (
+              <motion.button
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="btn btn-ghost btn-circle"
+                onClick={onToggleSidebar}
+                title="Expand sidebar"
+              >
+                <PanelLeftOpen className="h-5 w-5" />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </div>
         <div className="navbar-end gap-2">
           {/* ---- Share dropdown ---- */}

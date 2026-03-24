@@ -87,6 +87,11 @@ export function addNode(db, name, color, parentId = null) {
   return node
 }
 
+export function renameNode(db, nodeId, newName) {
+  const node = db.nodes.find((n) => n.id === nodeId)
+  if (node) node.name = newName
+}
+
 export function deleteNode(db, nodeId) {
   // Recursively collect all descendant node ids
   const toDelete = new Set()

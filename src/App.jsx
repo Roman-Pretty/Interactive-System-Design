@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import Navbar from './components/Navbar'
-import { Users, X, Filter, Search, Plus, Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, MessageSquare, Send, CheckCircle2, Reply } from 'lucide-react'
+import { Users, X, Filter, Search, Plus, Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, MessageSquare, Send, CheckCircle2, Reply, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { useGraph } from './context/GraphContext'
 import { AVAILABLE_COLORS } from './data/store'
@@ -8,7 +9,7 @@ import { AVAILABLE_COLORS } from './data/store'
 function App() {
   const {
     nodes, visibleNodes, edges, users,
-    addNode, deleteNode, addEdge,
+    addNode, renameNode, deleteNode, addEdge,
     currentParentId, breadcrumbs,
     navigateInto, navigateUp, getChildCount,
     comments, unreadComments,
@@ -17,6 +18,7 @@ function App() {
   } = useGraph()
 
   const [fabOpen, setFabOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [nodeSearch, setNodeSearch] = useState('')
   const [isDark, setIsDark] = useState(false)
   const graphRef = useRef()
@@ -35,6 +37,10 @@ function App() {
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState(null)
 
+  // Rename state
+  const [renamingNodeId, setRenamingNodeId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+
   // Sidebar expanded folders
   const [expanded, setExpanded] = useState(new Set())
 
@@ -42,7 +48,6 @@ function App() {
   const [hoveredNodeId, setHoveredNodeId] = useState(null)
   const [dragEdge, setDragEdge] = useState(null) // { sourceId }
   const [dragMousePos, setDragMousePos] = useState(null) // { x, y } screen coords
-  const [handleScreenPos, setHandleScreenPos] = useState(null) // [{x,y},...] screen coords of 4 handle overlays
 
   // Comment state
   const [commentFormNodeId, setCommentFormNodeId] = useState(null) // which node is being commented on
@@ -63,9 +68,6 @@ function App() {
   const hoverScreenPosRef = useRef({ x: 0, y: 0 })
   const pinnedTooltipRef = useRef(null)
   const tooltipHideTimeoutRef = useRef(null)
-  const handleHoveredRef = useRef(false)       // is mouse on an HTML handle overlay?
-  const handleHideTimeoutRef = useRef(null)     // delay before clearing hovered node
-  const graphNodeHoverRef = useRef(null)        // raw hover id from react-force-graph
   hoveredNodeIdRef.current = hoveredNodeId
   dragEdgeRef.current = dragEdge
   pinnedTooltipRef.current = pinnedTooltipNodeId
@@ -145,36 +147,62 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [dragEdge, ctxAddForm])
 
-  // Track handle overlay screen positions via requestAnimationFrame
+  // Canvas-level handle hit detection for starting edge drags
   useEffect(() => {
-    if (!hoveredNodeId || dragEdge) {
-      setHandleScreenPos(null)
-      return
-    }
-    const targetId = hoveredNodeId
-    let rafId
-    let mounted = true
-    const update = () => {
-      if (!mounted || !graphRef.current) return
+    const container = containerRef.current
+    if (!container) return
+
+    const getHandleAtPos = (screenX, screenY) => {
+      if (!hoveredNodeIdRef.current || !graphRef.current) return false
       try {
+        const gc = graphRef.current.screen2GraphCoords(screenX, screenY)
         const data = graphRef.current.graphData()
-        const node = data?.nodes.find((n) => n.id === targetId)
-        if (node && node.x !== undefined) {
-          const r = 20
-          const positions = [
-            graphRef.current.graph2ScreenCoords(node.x, node.y - r),
-            graphRef.current.graph2ScreenCoords(node.x + r, node.y),
-            graphRef.current.graph2ScreenCoords(node.x, node.y + r),
-            graphRef.current.graph2ScreenCoords(node.x - r, node.y),
-          ]
-          setHandleScreenPos(positions)
-        }
-      } catch { /* graph not ready */ }
-      rafId = requestAnimationFrame(update)
+        const node = data?.nodes.find((n) => n.id === hoveredNodeIdRef.current)
+        if (!node || node.x === undefined) return false
+        const radius = 20
+        const handles = [
+          { x: node.x, y: node.y - radius },
+          { x: node.x + radius, y: node.y },
+          { x: node.x, y: node.y + radius },
+          { x: node.x - radius, y: node.y },
+        ]
+        const hitRadius = 9
+        return handles.some((h) => {
+          const dx = gc.x - h.x
+          const dy = gc.y - h.y
+          return Math.sqrt(dx * dx + dy * dy) < hitRadius
+        })
+      } catch { return false }
     }
-    rafId = requestAnimationFrame(update)
-    return () => { mounted = false; cancelAnimationFrame(rafId) }
-  }, [hoveredNodeId, dragEdge])
+
+    const handleMouseDown = (e) => {
+      if (dragEdgeRef.current) return
+      const rect = container.getBoundingClientRect()
+      const screenX = e.clientX - rect.left
+      const screenY = e.clientY - rect.top
+      if (getHandleAtPos(screenX, screenY)) {
+        e.stopImmediatePropagation()
+        e.preventDefault()
+        setDragEdge({ sourceId: hoveredNodeIdRef.current })
+        setDragMousePos({ x: screenX, y: screenY })
+      }
+    }
+
+    const handleMouseMove = (e) => {
+      if (dragEdgeRef.current) return
+      const canvas = container.querySelector('canvas')
+      if (!canvas) return
+      const rect = container.getBoundingClientRect()
+      canvas.style.cursor = getHandleAtPos(e.clientX - rect.left, e.clientY - rect.top) ? 'crosshair' : ''
+    }
+
+    container.addEventListener('mousedown', handleMouseDown, true)
+    container.addEventListener('mousemove', handleMouseMove)
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown, true)
+      container.removeEventListener('mousemove', handleMouseMove)
+    }
+  }, [])
 
   // Window-level mouse listeners for edge drag
   useEffect(() => {
@@ -379,8 +407,6 @@ function App() {
   }, [])
 
   const handleNodeHover = useCallback((node) => {
-    graphNodeHoverRef.current = node ? node.id : null
-
     // During drag, update immediately for blue ring target indicator
     if (dragEdgeRef.current) {
       setHoveredNodeId(node ? node.id : null)
@@ -388,11 +414,6 @@ function App() {
     }
 
     if (node) {
-      // Cancel any pending hide timeouts
-      if (handleHideTimeoutRef.current) {
-        clearTimeout(handleHideTimeoutRef.current)
-        handleHideTimeoutRef.current = null
-      }
       if (tooltipHideTimeoutRef.current) {
         clearTimeout(tooltipHideTimeoutRef.current)
         tooltipHideTimeoutRef.current = null
@@ -401,13 +422,7 @@ function App() {
       const pos = hoverScreenPosRef.current
       setCommentTooltipPos({ x: pos.x + 24, y: pos.y - 12 })
     } else {
-      // Delay clearing so handle/tooltip overlays can catch the mouse
-      handleHideTimeoutRef.current = setTimeout(() => {
-        if (!handleHoveredRef.current) {
-          setHoveredNodeId(null)
-        }
-        handleHideTimeoutRef.current = null
-      }, 300)
+      setHoveredNodeId(null)
       if (!pinnedTooltipRef.current) {
         tooltipHideTimeoutRef.current = setTimeout(() => {
           setCommentTooltipPos(null)
@@ -483,6 +498,18 @@ function App() {
         <div
           className={`group flex items-center gap-1 py-1 px-1 rounded-md hover:bg-base-200 cursor-pointer ${isCurrentLevel ? 'bg-base-200 font-semibold' : ''}`}
           style={{ paddingLeft: `${depth * 16 + 4}px` }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setContextMenu({
+              x: e.clientX,
+              y: e.clientY,
+              type: 'node',
+              nodeId: node.id,
+              nodeName: node.name,
+              source: 'sidebar',
+            })
+          }}
         >
           <button
             className="btn btn-ghost btn-xs btn-circle shrink-0"
@@ -510,9 +537,45 @@ function App() {
           <span
             className="text-sm truncate flex-1"
             onClick={() => navigateInto(node.id)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setContextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                type: 'node',
+                nodeId: node.id,
+                nodeName: node.name,
+                source: 'sidebar',
+              })
+            }}
             title={node.name}
           >
-            {node.name}
+            {renamingNodeId === node.id ? (
+              <input
+                className="input input-xs input-bordered w-full text-sm"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={() => {
+                  if (renameValue.trim() && renameValue.trim() !== node.name) {
+                    renameNode(node.id, renameValue.trim())
+                  }
+                  setRenamingNodeId(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (renameValue.trim() && renameValue.trim() !== node.name) {
+                      renameNode(node.id, renameValue.trim())
+                    }
+                    setRenamingNodeId(null)
+                  } else if (e.key === 'Escape') {
+                    setRenamingNodeId(null)
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+              />
+            ) : node.name}
           </span>
 
           {childCount > 0 && (
@@ -551,18 +614,36 @@ function App() {
   return (
     <div className="flex h-screen">
       {/* ========= SIDEBAR ========= */}
-      <aside className="w-1/5 bg-base-100 shadow-sm border-r border-base-300 p-4 flex flex-col min-h-0">
-        <div
-          className="mb-4 w-2/3 h-8 bg-base-content shrink-0"
-          style={{
-            WebkitMaskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
-            maskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
-            WebkitMaskSize: 'contain',
-            maskSize: 'contain',
-            WebkitMaskRepeat: 'no-repeat',
-            maskRepeat: 'no-repeat',
-          }}
-        />
+      <AnimatePresence initial={false}>
+      {sidebarOpen && (
+      <motion.aside
+        initial={{ width: 0, opacity: 0 }}
+        animate={{ width: '20%', opacity: 1 }}
+        exit={{ width: 0, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="bg-base-100 shadow-sm border-r border-base-300 flex flex-col min-h-0 overflow-hidden"
+      >
+        <div className="p-4 flex flex-col min-h-0 flex-1 min-w-0">
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <div
+            className="w-2/3 h-8 bg-base-content"
+            style={{
+              WebkitMaskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
+              maskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
+              WebkitMaskSize: 'contain',
+              maskSize: 'contain',
+              WebkitMaskRepeat: 'no-repeat',
+              maskRepeat: 'no-repeat',
+            }}
+          />
+          <button
+            className="btn btn-ghost btn-sm btn-circle"
+            onClick={() => setSidebarOpen(false)}
+            title="Collapse sidebar"
+          >
+            <PanelLeftClose className="size-4" />
+          </button>
+        </div>
 
         <label className="input input-sm bg-base-200 flex items-center gap-2 mb-3 shrink-0">
           <Search className="size-4 opacity-50" />
@@ -643,11 +724,14 @@ function App() {
             New node...
           </button>
         )}
-      </aside>
+        </div>
+      </motion.aside>
+      )}
+      </AnimatePresence>
 
       {/* ========= MAIN PANEL ========= */}
       <div className="flex-1 flex flex-col min-h-0">
-        <Navbar onZoomToNode={zoomToNode} />
+        <Navbar onZoomToNode={zoomToNode} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(true)} />
         <main
           ref={containerRef}
           className="flex-1 bg-base-200 relative overflow-hidden min-h-0"
@@ -725,49 +809,8 @@ function App() {
             </svg>
           )}
 
-          {/* HTML handle overlays for edge dragging */}
-          {handleScreenPos && !dragEdge && handleScreenPos.map((pos, i) => (
-            <div
-              key={i}
-              className="absolute z-30"
-              style={{
-                left: pos.x - 12,
-                top: pos.y - 12,
-                width: 24,
-                height: 24,
-                cursor: 'crosshair',
-                borderRadius: '50%',
-              }}
-              onMouseEnter={() => {
-                handleHoveredRef.current = true
-                if (handleHideTimeoutRef.current) {
-                  clearTimeout(handleHideTimeoutRef.current)
-                  handleHideTimeoutRef.current = null
-                }
-              }}
-              onMouseLeave={() => {
-                handleHoveredRef.current = false
-                setTimeout(() => {
-                  if (!handleHoveredRef.current && !graphNodeHoverRef.current) {
-                    setHoveredNodeId(null)
-                    setHandleScreenPos(null)
-                  }
-                }, 150)
-              }}
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                e.preventDefault()
-                const targetId = hoveredNodeIdRef.current
-                if (!targetId) return
-                const rect = containerRef.current.getBoundingClientRect()
-                setDragEdge({ sourceId: targetId })
-                setDragMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-              }}
-            />
-          ))}
-
           {/* ---- Graph Context Menu ---- */}
-          {contextMenu && (
+          {contextMenu && !contextMenu.source && (
             <div
               className="absolute bg-base-100 rounded-lg shadow-xl border border-base-300 py-1 min-w-40 z-50"
               style={{ left: contextMenu.x, top: contextMenu.y }}
@@ -792,6 +835,16 @@ function App() {
                     onClick={() => { navigateInto(contextMenu.nodeId); setContextMenu(null) }}
                   >
                     <FolderOpen className="size-4" /> Open
+                  </button>
+                  <button
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+                    onClick={() => {
+                      setRenamingNodeId(contextMenu.nodeId)
+                      setRenameValue(contextMenu.nodeName)
+                      setContextMenu(null)
+                    }}
+                  >
+                    <Pencil className="size-4" /> Rename
                   </button>
                   <button
                     className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
@@ -1206,6 +1259,39 @@ function App() {
           </div>
         </main>
       </div>
+
+      {/* ---- Sidebar Context Menu (fixed position) ---- */}
+      {contextMenu && contextMenu.source === 'sidebar' && (
+        <div
+          className="fixed bg-base-100 rounded-lg shadow-xl border border-base-300 py-1 min-w-40 z-100"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-4 py-1 text-xs font-semibold opacity-50">{contextMenu.nodeName}</div>
+          <button
+            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+            onClick={() => { navigateInto(contextMenu.nodeId); setContextMenu(null) }}
+          >
+            <FolderOpen className="size-4" /> Open
+          </button>
+          <button
+            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+            onClick={() => {
+              setRenamingNodeId(contextMenu.nodeId)
+              setRenameValue(contextMenu.nodeName)
+              setContextMenu(null)
+            }}
+          >
+            <Pencil className="size-4" /> Rename
+          </button>
+          <button
+            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2 text-error"
+            onClick={() => { deleteNode(contextMenu.nodeId); setContextMenu(null) }}
+          >
+            <Trash2 className="size-4" /> Delete Node
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import {
   loadDB,
   saveDB,
   addNode as storeAddNode,
+  renameNode as storeRenameNode,
   deleteNode as storeDeleteNode,
   addEdge as storeAddEdge,
   deleteEdge as storeDeleteEdge,
@@ -38,6 +39,10 @@ export function GraphProvider({ children }) {
       node = storeAddNode(d, name, color, parentId)
     })
     return node
+  }, [refresh])
+
+  const renameNode = useCallback((nodeId, newName) => {
+    refresh((d) => storeRenameNode(d, nodeId, newName))
   }, [refresh])
 
   const deleteNode = useCallback((nodeId) => {
@@ -152,6 +157,7 @@ export function GraphProvider({ children }) {
         currentParentId,
         breadcrumbs,
         addNode,
+        renameNode,
         deleteNode,
         addEdge,
         deleteEdge,
