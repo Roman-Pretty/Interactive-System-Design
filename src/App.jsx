@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import Navbar from './components/Navbar'
-import { Users, X, Filter, Search, Plus, Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, MessageSquare, Send, CheckCircle2, Reply, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Users, X, Filter, Search, Plus, Trash2, ChevronRight, ChevronDown, FolderOpen, Folder, MessageSquare, Send, CheckCircle2, Reply, PanelLeftClose, Pencil } from 'lucide-react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { useGraph } from './context/GraphContext'
 import { AVAILABLE_COLORS } from './data/store'
@@ -17,8 +16,8 @@ function App() {
     currentUser,
   } = useGraph()
 
-  const [fabOpen, setFabOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [fabOpen, setFabOpen] = useState(false)
   const [nodeSearch, setNodeSearch] = useState('')
   const [isDark, setIsDark] = useState(false)
   const graphRef = useRef()
@@ -41,6 +40,9 @@ function App() {
   const [renamingNodeId, setRenamingNodeId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
 
+  // Sidebar context menu (separate from canvas context menu)
+  const [sidebarMenu, setSidebarMenu] = useState(null)
+
   // Sidebar expanded folders
   const [expanded, setExpanded] = useState(new Set())
 
@@ -48,6 +50,7 @@ function App() {
   const [hoveredNodeId, setHoveredNodeId] = useState(null)
   const [dragEdge, setDragEdge] = useState(null) // { sourceId }
   const [dragMousePos, setDragMousePos] = useState(null) // { x, y } screen coords
+  const [handleScreenPos, setHandleScreenPos] = useState(null) // [{x,y},...] screen coords of 4 handle overlays
 
   // Comment state
   const [commentFormNodeId, setCommentFormNodeId] = useState(null) // which node is being commented on
@@ -60,7 +63,6 @@ function App() {
   const [pinnedTooltipNodeId, setPinnedTooltipNodeId] = useState(null) // keeps tooltip open when mouse enters it
   const [tooltipReplyingTo, setTooltipReplyingTo] = useState(null) // commentId being replied to in tooltip
   const [tooltipReplyText, setTooltipReplyText] = useState('')
-  const [confirmDeleteComment, setConfirmDeleteComment] = useState(null) // commentId pending delete confirmation
   // Refs for state mirroring and overlay hover tracking
   const hoveredNodeIdRef = useRef(null)
   const dragEdgeRef = useRef(null)
@@ -68,6 +70,9 @@ function App() {
   const hoverScreenPosRef = useRef({ x: 0, y: 0 })
   const pinnedTooltipRef = useRef(null)
   const tooltipHideTimeoutRef = useRef(null)
+  const handleHoveredRef = useRef(false)       // is mouse on an HTML handle overlay?
+  const handleHideTimeoutRef = useRef(null)     // delay before clearing hovered node
+  const graphNodeHoverRef = useRef(null)        // raw hover id from react-force-graph
   hoveredNodeIdRef.current = hoveredNodeId
   dragEdgeRef.current = dragEdge
   pinnedTooltipRef.current = pinnedTooltipNodeId
@@ -128,9 +133,9 @@ function App() {
     }
   }, [])
 
-  // Close context menu on click
+  // Close context menus on click
   useEffect(() => {
-    const close = () => setContextMenu(null)
+    const close = () => { setContextMenu(null); setSidebarMenu(null) }
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
@@ -147,62 +152,36 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [dragEdge, ctxAddForm])
 
-  // Canvas-level handle hit detection for starting edge drags
+  // Track handle overlay screen positions via requestAnimationFrame
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const getHandleAtPos = (screenX, screenY) => {
-      if (!hoveredNodeIdRef.current || !graphRef.current) return false
+    if (!hoveredNodeId || dragEdge) {
+      setHandleScreenPos(null)
+      return
+    }
+    const targetId = hoveredNodeId
+    let rafId
+    let mounted = true
+    const update = () => {
+      if (!mounted || !graphRef.current) return
       try {
-        const gc = graphRef.current.screen2GraphCoords(screenX, screenY)
         const data = graphRef.current.graphData()
-        const node = data?.nodes.find((n) => n.id === hoveredNodeIdRef.current)
-        if (!node || node.x === undefined) return false
-        const radius = 20
-        const handles = [
-          { x: node.x, y: node.y - radius },
-          { x: node.x + radius, y: node.y },
-          { x: node.x, y: node.y + radius },
-          { x: node.x - radius, y: node.y },
-        ]
-        const hitRadius = 9
-        return handles.some((h) => {
-          const dx = gc.x - h.x
-          const dy = gc.y - h.y
-          return Math.sqrt(dx * dx + dy * dy) < hitRadius
-        })
-      } catch { return false }
+        const node = data?.nodes.find((n) => n.id === targetId)
+        if (node && node.x !== undefined) {
+          const r = 20
+          const positions = [
+            graphRef.current.graph2ScreenCoords(node.x, node.y - r),
+            graphRef.current.graph2ScreenCoords(node.x + r, node.y),
+            graphRef.current.graph2ScreenCoords(node.x, node.y + r),
+            graphRef.current.graph2ScreenCoords(node.x - r, node.y),
+          ]
+          setHandleScreenPos(positions)
+        }
+      } catch { /* graph not ready */ }
+      rafId = requestAnimationFrame(update)
     }
-
-    const handleMouseDown = (e) => {
-      if (dragEdgeRef.current) return
-      const rect = container.getBoundingClientRect()
-      const screenX = e.clientX - rect.left
-      const screenY = e.clientY - rect.top
-      if (getHandleAtPos(screenX, screenY)) {
-        e.stopImmediatePropagation()
-        e.preventDefault()
-        setDragEdge({ sourceId: hoveredNodeIdRef.current })
-        setDragMousePos({ x: screenX, y: screenY })
-      }
-    }
-
-    const handleMouseMove = (e) => {
-      if (dragEdgeRef.current) return
-      const canvas = container.querySelector('canvas')
-      if (!canvas) return
-      const rect = container.getBoundingClientRect()
-      canvas.style.cursor = getHandleAtPos(e.clientX - rect.left, e.clientY - rect.top) ? 'crosshair' : ''
-    }
-
-    container.addEventListener('mousedown', handleMouseDown, true)
-    container.addEventListener('mousemove', handleMouseMove)
-    return () => {
-      container.removeEventListener('mousedown', handleMouseDown, true)
-      container.removeEventListener('mousemove', handleMouseMove)
-    }
-  }, [])
+    rafId = requestAnimationFrame(update)
+    return () => { mounted = false; cancelAnimationFrame(rafId) }
+  }, [hoveredNodeId, dragEdge])
 
   // Window-level mouse listeners for edge drag
   useEffect(() => {
@@ -407,6 +386,8 @@ function App() {
   }, [])
 
   const handleNodeHover = useCallback((node) => {
+    graphNodeHoverRef.current = node ? node.id : null
+
     // During drag, update immediately for blue ring target indicator
     if (dragEdgeRef.current) {
       setHoveredNodeId(node ? node.id : null)
@@ -414,6 +395,11 @@ function App() {
     }
 
     if (node) {
+      // Cancel any pending hide timeouts
+      if (handleHideTimeoutRef.current) {
+        clearTimeout(handleHideTimeoutRef.current)
+        handleHideTimeoutRef.current = null
+      }
       if (tooltipHideTimeoutRef.current) {
         clearTimeout(tooltipHideTimeoutRef.current)
         tooltipHideTimeoutRef.current = null
@@ -422,7 +408,13 @@ function App() {
       const pos = hoverScreenPosRef.current
       setCommentTooltipPos({ x: pos.x + 24, y: pos.y - 12 })
     } else {
-      setHoveredNodeId(null)
+      // Delay clearing so handle/tooltip overlays can catch the mouse
+      handleHideTimeoutRef.current = setTimeout(() => {
+        if (!handleHoveredRef.current) {
+          setHoveredNodeId(null)
+        }
+        handleHideTimeoutRef.current = null
+      }, 300)
       if (!pinnedTooltipRef.current) {
         tooltipHideTimeoutRef.current = setTimeout(() => {
           setCommentTooltipPos(null)
@@ -501,14 +493,7 @@ function App() {
           onContextMenu={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            setContextMenu({
-              x: e.clientX,
-              y: e.clientY,
-              type: 'node',
-              nodeId: node.id,
-              nodeName: node.name,
-              source: 'sidebar',
-            })
+            setSidebarMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, nodeName: node.name })
           }}
         >
           <button
@@ -534,49 +519,36 @@ function App() {
             />
           )}
 
-          <span
-            className="text-sm truncate flex-1"
-            onClick={() => navigateInto(node.id)}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              setContextMenu({
-                x: e.clientX,
-                y: e.clientY,
-                type: 'node',
-                nodeId: node.id,
-                nodeName: node.name,
-                source: 'sidebar',
-              })
-            }}
-            title={node.name}
-          >
-            {renamingNodeId === node.id ? (
-              <input
-                className="input input-xs input-bordered w-full text-sm"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onBlur={() => {
-                  if (renameValue.trim() && renameValue.trim() !== node.name) {
-                    renameNode(node.id, renameValue.trim())
-                  }
+          {renamingNodeId === node.id ? (
+            <input
+              className="input input-xs text-sm flex-1 min-w-0"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && renameValue.trim()) {
+                  renameNode(node.id, renameValue.trim())
                   setRenamingNodeId(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (renameValue.trim() && renameValue.trim() !== node.name) {
-                      renameNode(node.id, renameValue.trim())
-                    }
-                    setRenamingNodeId(null)
-                  } else if (e.key === 'Escape') {
-                    setRenamingNodeId(null)
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                autoFocus
-              />
-            ) : node.name}
-          </span>
+                  setRenameValue('')
+                }
+                if (e.key === 'Escape') { setRenamingNodeId(null); setRenameValue('') }
+              }}
+              onBlur={() => {
+                if (renameValue.trim()) renameNode(node.id, renameValue.trim())
+                setRenamingNodeId(null)
+                setRenameValue('')
+              }}
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span
+              className="text-sm truncate flex-1"
+              onClick={() => navigateInto(node.id)}
+              title={node.name}
+            >
+              {node.name}
+            </span>
+          )}
 
           {childCount > 0 && (
             <span className="text-xs opacity-40 shrink-0">{childCount}</span>
@@ -614,36 +586,25 @@ function App() {
   return (
     <div className="flex h-screen">
       {/* ========= SIDEBAR ========= */}
-      <AnimatePresence initial={false}>
-      {sidebarOpen && (
-      <motion.aside
-        initial={{ width: 0, opacity: 0 }}
-        animate={{ width: '20%', opacity: 1 }}
-        exit={{ width: 0, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="bg-base-100 shadow-sm border-r border-base-300 flex flex-col min-h-0 overflow-hidden"
-      >
-        <div className="p-4 flex flex-col min-h-0 flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-4 shrink-0">
-          <div
-            className="w-2/3 h-8 bg-base-content"
-            style={{
-              WebkitMaskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
-              maskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
-              WebkitMaskSize: 'contain',
-              maskSize: 'contain',
-              WebkitMaskRepeat: 'no-repeat',
-              maskRepeat: 'no-repeat',
-            }}
-          />
-          <button
-            className="btn btn-ghost btn-sm btn-circle"
-            onClick={() => setSidebarOpen(false)}
-            title="Collapse sidebar"
-          >
-            <PanelLeftClose className="size-4" />
-          </button>
-        </div>
+      {sidebarOpen && <aside className="relative w-1/5 bg-base-100 shadow-sm border-r border-base-300 p-4 flex flex-col min-h-0">
+        <button
+          className="btn btn-ghost btn-circle btn-sm absolute top-2 right-2 z-10"
+          onClick={() => setSidebarOpen(false)}
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose className="h-5 w-5" />
+        </button>
+        <div
+          className="mb-4 w-2/3 h-8 bg-base-content shrink-0"
+          style={{
+            WebkitMaskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
+            maskImage: 'url(https://framerusercontent.com/images/B9AhGiyf4kAw38A0GTWs6qGMPo4.png?scale-down-to=512)',
+            WebkitMaskSize: 'contain',
+            maskSize: 'contain',
+            WebkitMaskRepeat: 'no-repeat',
+            maskRepeat: 'no-repeat',
+          }}
+        />
 
         <label className="input input-sm bg-base-200 flex items-center gap-2 mb-3 shrink-0">
           <Search className="size-4 opacity-50" />
@@ -724,14 +685,44 @@ function App() {
             New node...
           </button>
         )}
-        </div>
-      </motion.aside>
-      )}
-      </AnimatePresence>
+
+        {/* ---- Sidebar Context Menu ---- */}
+        {sidebarMenu && (
+          <div
+            className="fixed bg-base-100 rounded-lg shadow-xl border border-base-300 py-1 min-w-40 z-50"
+            style={{ left: sidebarMenu.x, top: sidebarMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-1 text-xs font-semibold opacity-50">{sidebarMenu.nodeName}</div>
+            <button
+              className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+              onClick={() => { navigateInto(sidebarMenu.nodeId); setSidebarMenu(null) }}
+            >
+              <FolderOpen className="size-4" /> Open
+            </button>
+            <button
+              className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+              onClick={() => {
+                setRenamingNodeId(sidebarMenu.nodeId)
+                setRenameValue(sidebarMenu.nodeName)
+                setSidebarMenu(null)
+              }}
+            >
+              <Pencil className="size-4" /> Rename
+            </button>
+            <button
+              className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2 text-error"
+              onClick={() => { deleteNode(sidebarMenu.nodeId); setSidebarMenu(null) }}
+            >
+              <Trash2 className="size-4" /> Delete
+            </button>
+          </div>
+        )}
+      </aside>}
 
       {/* ========= MAIN PANEL ========= */}
       <div className="flex-1 flex flex-col min-h-0">
-        <Navbar onZoomToNode={zoomToNode} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(true)} />
+        <Navbar onZoomToNode={zoomToNode} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((o) => !o)} />
         <main
           ref={containerRef}
           className="flex-1 bg-base-200 relative overflow-hidden min-h-0"
@@ -809,8 +800,49 @@ function App() {
             </svg>
           )}
 
+          {/* HTML handle overlays for edge dragging */}
+          {handleScreenPos && !dragEdge && handleScreenPos.map((pos, i) => (
+            <div
+              key={i}
+              className="absolute z-30"
+              style={{
+                left: pos.x - 12,
+                top: pos.y - 12,
+                width: 24,
+                height: 24,
+                cursor: 'crosshair',
+                borderRadius: '50%',
+              }}
+              onMouseEnter={() => {
+                handleHoveredRef.current = true
+                if (handleHideTimeoutRef.current) {
+                  clearTimeout(handleHideTimeoutRef.current)
+                  handleHideTimeoutRef.current = null
+                }
+              }}
+              onMouseLeave={() => {
+                handleHoveredRef.current = false
+                setTimeout(() => {
+                  if (!handleHoveredRef.current && !graphNodeHoverRef.current) {
+                    setHoveredNodeId(null)
+                    setHandleScreenPos(null)
+                  }
+                }, 150)
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                const targetId = hoveredNodeIdRef.current
+                if (!targetId) return
+                const rect = containerRef.current.getBoundingClientRect()
+                setDragEdge({ sourceId: targetId })
+                setDragMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+              }}
+            />
+          ))}
+
           {/* ---- Graph Context Menu ---- */}
-          {contextMenu && !contextMenu.source && (
+          {contextMenu && (
             <div
               className="absolute bg-base-100 rounded-lg shadow-xl border border-base-300 py-1 min-w-40 z-50"
               style={{ left: contextMenu.x, top: contextMenu.y }}
@@ -839,16 +871,6 @@ function App() {
                   <button
                     className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
                     onClick={() => {
-                      setRenamingNodeId(contextMenu.nodeId)
-                      setRenameValue(contextMenu.nodeName)
-                      setContextMenu(null)
-                    }}
-                  >
-                    <Pencil className="size-4" /> Rename
-                  </button>
-                  <button
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
-                    onClick={() => {
                       setCommentFormNodeId(contextMenu.nodeId)
                       setCommentFormPos({ x: contextMenu.x, y: contextMenu.y })
                       setCommentText('')
@@ -856,6 +878,16 @@ function App() {
                     }}
                   >
                     <MessageSquare className="size-4" /> Add Comment
+                  </button>
+                  <button
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
+                    onClick={() => {
+                      setRenamingNodeId(contextMenu.nodeId)
+                      setRenameValue(contextMenu.nodeName)
+                      setContextMenu(null)
+                    }}
+                  >
+                    <Pencil className="size-4" /> Rename
                   </button>
                   <button
                     className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2 text-error"
@@ -1146,24 +1178,13 @@ function App() {
                                   <p className="text-xs opacity-50 mt-0.5">{nodeName} &middot; {new Date(c.createdAt).toLocaleDateString()}</p>
                                 </div>
                               </div>
-                              <div className="relative">
-                                <button
-                                  className="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100"
-                                  onClick={() => setConfirmDeleteComment(confirmDeleteComment === c.id ? null : c.id)}
-                                  title="Delete comment"
-                                >
-                                  <Trash2 className="size-3" />
-                                </button>
-                                {confirmDeleteComment === c.id && (
-                                  <div className="absolute right-0 top-full mt-1 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 z-10 w-48">
-                                    <p className="text-xs font-medium mb-2">Delete this comment?</p>
-                                    <div className="flex justify-end gap-2">
-                                      <button className="btn btn-ghost btn-xs" onClick={() => setConfirmDeleteComment(null)}>Cancel</button>
-                                      <button className="btn btn-error btn-xs" onClick={() => { removeComment(c.id); setConfirmDeleteComment(null) }}>Delete</button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                              <button
+                                className="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100"
+                                onClick={() => removeComment(c.id)}
+                                title="Delete comment"
+                              >
+                                <X className="size-3" />
+                              </button>
                             </div>
                             <p className="text-sm leading-relaxed mt-3">{c.text}</p>
 
@@ -1259,39 +1280,6 @@ function App() {
           </div>
         </main>
       </div>
-
-      {/* ---- Sidebar Context Menu (fixed position) ---- */}
-      {contextMenu && contextMenu.source === 'sidebar' && (
-        <div
-          className="fixed bg-base-100 rounded-lg shadow-xl border border-base-300 py-1 min-w-40 z-100"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-4 py-1 text-xs font-semibold opacity-50">{contextMenu.nodeName}</div>
-          <button
-            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
-            onClick={() => { navigateInto(contextMenu.nodeId); setContextMenu(null) }}
-          >
-            <FolderOpen className="size-4" /> Open
-          </button>
-          <button
-            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2"
-            onClick={() => {
-              setRenamingNodeId(contextMenu.nodeId)
-              setRenameValue(contextMenu.nodeName)
-              setContextMenu(null)
-            }}
-          >
-            <Pencil className="size-4" /> Rename
-          </button>
-          <button
-            className="w-full text-left px-4 py-2 text-sm hover:bg-base-200 flex items-center gap-2 text-error"
-            onClick={() => { deleteNode(contextMenu.nodeId); setContextMenu(null) }}
-          >
-            <Trash2 className="size-4" /> Delete Node
-          </button>
-        </div>
-      )}
     </div>
   )
 }
