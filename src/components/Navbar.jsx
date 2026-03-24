@@ -1,9 +1,40 @@
-import { motion } from 'framer-motion'
-import { Menu, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Menu, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 
 function Navbar({ onZoomToNode }) {
   const { users, currentUser, setCurrentUser, nodes, comments, unreadComments, markCommentRead } = useGraph()
+
+  // Share menu state
+  const [wholeEmail, setWholeEmail] = useState('')
+  const [levelEmail, setLevelEmail] = useState('')
+  const [wholeCopied, setWholeCopied] = useState(false)
+  const [levelCopied, setLevelCopied] = useState(false)
+  const [wholeSent, setWholeSent] = useState(false)
+  const [levelSent, setLevelSent] = useState(false)
+  const wholeCopiedTimer = useRef(null)
+  const levelCopiedTimer = useRef(null)
+  const wholeSentTimer = useRef(null)
+  const levelSentTimer = useRef(null)
+
+  const handleCopy = (which) => {
+    const setter = which === 'whole' ? setWholeCopied : setLevelCopied
+    const timerRef = which === 'whole' ? wholeCopiedTimer : levelCopiedTimer
+    setter(true)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setter(false), 1200)
+  }
+
+  const handleSend = (which) => {
+    const emailSetter = which === 'whole' ? setWholeEmail : setLevelEmail
+    const sentSetter = which === 'whole' ? setWholeSent : setLevelSent
+    const timerRef = which === 'whole' ? wholeSentTimer : levelSentTimer
+    emailSetter('')
+    sentSetter(true)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => sentSetter(false), 1500)
+  }
 
   return (
     <header>
@@ -23,10 +54,132 @@ function Navbar({ onZoomToNode }) {
           </div>
         </div>
         <div className="navbar-end gap-2">
-          <button className="btn btn-outline btn-primary btn-sm">
-            <Share2 className="h-4 w-4" />
-            Share
-          </button>
+          {/* ---- Share dropdown ---- */}
+          <div className="dropdown dropdown-end">
+            <div tabIndex={0} role="button" className="btn btn-outline btn-primary btn-sm">
+              <Share2 className="h-4 w-4" />
+              Share
+            </div>
+            <div
+              tabIndex={0}
+              className="dropdown-content bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 z-50 mt-3 w-96 p-5"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Share2 className="size-3.5 text-primary" />
+                </div>
+                <span className="text-sm font-semibold">Share</span>
+              </div>
+
+              {/* Share whole project */}
+              <div className="bg-base-200/50 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold leading-tight">Share whole project</p>
+                    <p className="text-xs opacity-50 mt-0.5">Collaborators will have access to all nodes</p>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100 shrink-0"
+                    onClick={() => handleCopy('whole')}
+                  >
+                    <AnimatePresence mode="wait">
+                      {wholeCopied ? (
+                        <motion.span key="copied" className="flex items-center gap-1 text-success" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                          <Check className="size-3" /> Copied!
+                        </motion.span>
+                      ) : (
+                        <motion.span key="copy" className="flex items-center gap-1" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                          <Link className="size-3" /> Copy Link
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </button>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <input
+                    type="email"
+                    placeholder="Enter Email"
+                    className="input input-sm flex-1 bg-base-100 border-base-300 focus:border-primary/50 focus:outline-none"
+                    value={wholeEmail}
+                    onChange={(e) => setWholeEmail(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={!wholeEmail.trim()}
+                    onClick={() => handleSend('whole')}
+                  >
+                    <AnimatePresence mode="wait">
+                      {wholeSent ? (
+                        <motion.span key="sent" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+                          <Check className="size-3.5" />
+                        </motion.span>
+                      ) : (
+                        <motion.span key="send" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          <Send className="size-3.5" />
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </button>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="divider text-xs opacity-40 my-3">OR</div>
+
+              {/* Share from this level */}
+              <div className="bg-base-200/50 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold leading-tight">Share from this level</p>
+                    <p className="text-xs opacity-50 mt-0.5">Collaborators will have access to just this node and its children</p>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100 shrink-0"
+                    onClick={() => handleCopy('level')}
+                  >
+                    <AnimatePresence mode="wait">
+                      {levelCopied ? (
+                        <motion.span key="copied" className="flex items-center gap-1 text-success" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                          <Check className="size-3" /> Copied!
+                        </motion.span>
+                      ) : (
+                        <motion.span key="copy" className="flex items-center gap-1" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                          <Link className="size-3" /> Copy Link
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </button>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <input
+                    type="email"
+                    placeholder="Enter Email"
+                    className="input input-sm flex-1 bg-base-100 border-base-300 focus:border-primary/50 focus:outline-none"
+                    value={levelEmail}
+                    onChange={(e) => setLevelEmail(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={!levelEmail.trim()}
+                    onClick={() => handleSend('level')}
+                  >
+                    <AnimatePresence mode="wait">
+                      {levelSent ? (
+                        <motion.span key="sent" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+                          <Check className="size-3.5" />
+                        </motion.span>
+                      ) : (
+                        <motion.span key="send" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          <Send className="size-3.5" />
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
           <label className="btn btn-ghost btn-circle swap swap-rotate">
             <input type="checkbox" className="theme-controller" value="dark" />
             <Sun className="swap-off h-5 w-5" />

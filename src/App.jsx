@@ -42,6 +42,7 @@ function App() {
   const [hoveredNodeId, setHoveredNodeId] = useState(null)
   const [dragEdge, setDragEdge] = useState(null) // { sourceId }
   const [dragMousePos, setDragMousePos] = useState(null) // { x, y } screen coords
+  const [handleScreenPos, setHandleScreenPos] = useState(null) // [{x,y},...] screen coords of 4 handle overlays
 
   // Comment state
   const [commentFormNodeId, setCommentFormNodeId] = useState(null) // which node is being commented on
@@ -54,14 +55,17 @@ function App() {
   const [pinnedTooltipNodeId, setPinnedTooltipNodeId] = useState(null) // keeps tooltip open when mouse enters it
   const [tooltipReplyingTo, setTooltipReplyingTo] = useState(null) // commentId being replied to in tooltip
   const [tooltipReplyText, setTooltipReplyText] = useState('')
-  // Refs mirror state for capture-phase listeners (avoids stale closures)
+  const [confirmDeleteComment, setConfirmDeleteComment] = useState(null) // commentId pending delete confirmation
+  // Refs for state mirroring and overlay hover tracking
   const hoveredNodeIdRef = useRef(null)
   const dragEdgeRef = useRef(null)
   const dragCompletedRef = useRef(false)
-  const isNearHandleRef = useRef(false)
   const hoverScreenPosRef = useRef({ x: 0, y: 0 })
   const pinnedTooltipRef = useRef(null)
   const tooltipHideTimeoutRef = useRef(null)
+  const handleHoveredRef = useRef(false)       // is mouse on an HTML handle overlay?
+  const handleHideTimeoutRef = useRef(null)     // delay before clearing hovered node
+  const graphNodeHoverRef = useRef(null)        // raw hover id from react-force-graph
   hoveredNodeIdRef.current = hoveredNodeId
   dragEdgeRef.current = dragEdge
   pinnedTooltipRef.current = pinnedTooltipNodeId
@@ -141,132 +145,84 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [dragEdge, ctxAddForm])
 
-  // All mouse interaction for handles/drag in capture phase.
-  // This runs before react-force-graph processes events, and sets
-  // the canvas cursor directly (bypassing React render timing).
+  // Track handle overlay screen positions via requestAnimationFrame
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
-    const getCanvas = () => el.querySelector('canvas')
-
-    const checkHandleProximity = (screenX, screenY) => {
-      const hId = hoveredNodeIdRef.current
-      if (!hId || !graphRef.current) return false
+    if (!hoveredNodeId || dragEdge) {
+      setHandleScreenPos(null)
+      return
+    }
+    const targetId = hoveredNodeId
+    let rafId
+    let mounted = true
+    const update = () => {
+      if (!mounted || !graphRef.current) return
       try {
-        const gc = graphRef.current.screen2GraphCoords(screenX, screenY)
         const data = graphRef.current.graphData()
-        const node = data?.nodes.find((n) => n.id === hId)
-        if (!node || node.x === undefined) return false
-        const radius = 20
-        const handles = [
-          { x: node.x, y: node.y - radius },
-          { x: node.x + radius, y: node.y },
-          { x: node.x, y: node.y + radius },
-          { x: node.x - radius, y: node.y },
-        ]
-        return handles.some((h) => {
-          const dx = gc.x - h.x
-          const dy = gc.y - h.y
-          return Math.sqrt(dx * dx + dy * dy) < 10
-        })
-      } catch { return false }
-    }
-
-    const handleMouseMove = (e) => {
-      const rect = el.getBoundingClientRect()
-      const sx = e.clientX - rect.left
-      const sy = e.clientY - rect.top
-
-      // Track mouse position for comment tooltips
-      hoverScreenPosRef.current = { x: sx, y: sy }
-
-      // Update drag line position
-      if (dragEdgeRef.current) {
-        setDragMousePos({ x: sx, y: sy })
-      }
-
-      // Check handle proximity and set cursor directly on canvas
-      const near = checkHandleProximity(sx, sy)
-      isNearHandleRef.current = near
-
-      const canvas = getCanvas()
-      if (canvas) {
-        if (dragEdgeRef.current) {
-          canvas.style.cursor = 'crosshair'
-        } else if (near) {
-          canvas.style.cursor = 'crosshair'
-        } else {
-          canvas.style.cursor = ''
+        const node = data?.nodes.find((n) => n.id === targetId)
+        if (node && node.x !== undefined) {
+          const r = 20
+          const positions = [
+            graphRef.current.graph2ScreenCoords(node.x, node.y - r),
+            graphRef.current.graph2ScreenCoords(node.x + r, node.y),
+            graphRef.current.graph2ScreenCoords(node.x, node.y + r),
+            graphRef.current.graph2ScreenCoords(node.x - r, node.y),
+          ]
+          setHandleScreenPos(positions)
         }
-      }
+      } catch { /* graph not ready */ }
+      rafId = requestAnimationFrame(update)
     }
+    rafId = requestAnimationFrame(update)
+    return () => { mounted = false; cancelAnimationFrame(rafId) }
+  }, [hoveredNodeId, dragEdge])
 
-    const handleMouseDown = (e) => {
-      if (e.button !== 0) return
-      if (!isNearHandleRef.current) return
-
-      const hId = hoveredNodeIdRef.current
-      if (!hId || !graphRef.current) return
-
-      const data = graphRef.current.graphData()
-      const node = data?.nodes.find((n) => n.id === hId)
-      if (!node) return
-
-      e.stopPropagation()
-      e.preventDefault()
-
-      const rect = el.getBoundingClientRect()
-      setDragEdge({ sourceId: node.id })
+  // Window-level mouse listeners for edge drag
+  useEffect(() => {
+    if (!dragEdge) return
+    const handleMouseMove = (e) => {
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect) return
       setDragMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
     }
-
     const handleMouseUp = (e) => {
-      const de = dragEdgeRef.current
-      if (!de) return
-
-      e.stopPropagation()
-
-      const rect = el.getBoundingClientRect()
-      const gc = graphRef.current?.screen2GraphCoords(
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-      )
-
-      if (gc) {
-        const data = graphRef.current.graphData()
-        let targetNode = null
-        let minDist = Infinity
-        for (const n of (data?.nodes || [])) {
-          if (n.id === de.sourceId) continue
-          const dx = gc.x - n.x
-          const dy = gc.y - n.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist < 28 && dist < minDist) {
-            minDist = dist
-            targetNode = n
-          }
-        }
-        if (targetNode) {
-          addEdge(de.sourceId, targetNode.id)
-        }
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect || !graphRef.current) {
+        setDragEdge(null); setDragMousePos(null); return
       }
-
+      const gc = graphRef.current.screen2GraphCoords(
+        e.clientX - rect.left, e.clientY - rect.top,
+      )
+      const data = graphRef.current.graphData()
+      let targetNode = null
+      let minDist = Infinity
+      for (const n of (data?.nodes || [])) {
+        if (n.id === dragEdge.sourceId) continue
+        const dx = gc.x - n.x
+        const dy = gc.y - n.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 28 && dist < minDist) { minDist = dist; targetNode = n }
+      }
+      if (targetNode) addEdge(dragEdge.sourceId, targetNode.id)
       setDragEdge(null)
       setDragMousePos(null)
       dragCompletedRef.current = true
       setTimeout(() => { dragCompletedRef.current = false }, 100)
     }
-
-    el.addEventListener('mousemove', handleMouseMove, true)
-    el.addEventListener('mousedown', handleMouseDown, true)
-    el.addEventListener('mouseup', handleMouseUp, true)
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
     return () => {
-      el.removeEventListener('mousemove', handleMouseMove, true)
-      el.removeEventListener('mousedown', handleMouseDown, true)
-      el.removeEventListener('mouseup', handleMouseUp, true)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [addEdge])
+  }, [dragEdge, addEdge])
+
+  // Set crosshair cursor on canvas during drag
+  useEffect(() => {
+    if (!dragEdge) return
+    const canvas = containerRef.current?.querySelector('canvas')
+    if (canvas) canvas.style.cursor = 'crosshair'
+    return () => { if (canvas) canvas.style.cursor = '' }
+  }, [dragEdge])
 
   // Node canvas rendering with Figma-style handles
   const nodeCommentCounts = useMemo(() => {
@@ -423,21 +379,41 @@ function App() {
   }, [])
 
   const handleNodeHover = useCallback((node) => {
-    setHoveredNodeId(node ? node.id : null)
+    graphNodeHoverRef.current = node ? node.id : null
+
+    // During drag, update immediately for blue ring target indicator
+    if (dragEdgeRef.current) {
+      setHoveredNodeId(node ? node.id : null)
+      return
+    }
+
     if (node) {
-      // Cancel any pending hide
+      // Cancel any pending hide timeouts
+      if (handleHideTimeoutRef.current) {
+        clearTimeout(handleHideTimeoutRef.current)
+        handleHideTimeoutRef.current = null
+      }
       if (tooltipHideTimeoutRef.current) {
         clearTimeout(tooltipHideTimeoutRef.current)
         tooltipHideTimeoutRef.current = null
       }
+      setHoveredNodeId(node.id)
       const pos = hoverScreenPosRef.current
       setCommentTooltipPos({ x: pos.x + 24, y: pos.y - 12 })
-    } else if (!pinnedTooltipRef.current) {
-      // Delay hiding so user can move mouse to the tooltip
-      tooltipHideTimeoutRef.current = setTimeout(() => {
-        setCommentTooltipPos(null)
-        tooltipHideTimeoutRef.current = null
-      }, 800)
+    } else {
+      // Delay clearing so handle/tooltip overlays can catch the mouse
+      handleHideTimeoutRef.current = setTimeout(() => {
+        if (!handleHoveredRef.current) {
+          setHoveredNodeId(null)
+        }
+        handleHideTimeoutRef.current = null
+      }, 300)
+      if (!pinnedTooltipRef.current) {
+        tooltipHideTimeoutRef.current = setTimeout(() => {
+          setCommentTooltipPos(null)
+          tooltipHideTimeoutRef.current = null
+        }, 800)
+      }
     }
   }, [])
 
@@ -680,8 +656,13 @@ function App() {
               ? 'linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)'
               : 'linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px)',
             backgroundSize: '32px 32px',
+            cursor: dragEdge ? 'crosshair' : undefined,
           }}
           onContextMenu={handleBackgroundRightClick}
+          onMouseMove={(e) => {
+            const rect = containerRef.current?.getBoundingClientRect()
+            if (rect) hoverScreenPosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+          }}
         >
           {/* Back button when inside a node */}
           {currentParentId && (
@@ -743,6 +724,47 @@ function App() {
               />
             </svg>
           )}
+
+          {/* HTML handle overlays for edge dragging */}
+          {handleScreenPos && !dragEdge && handleScreenPos.map((pos, i) => (
+            <div
+              key={i}
+              className="absolute z-30"
+              style={{
+                left: pos.x - 12,
+                top: pos.y - 12,
+                width: 24,
+                height: 24,
+                cursor: 'crosshair',
+                borderRadius: '50%',
+              }}
+              onMouseEnter={() => {
+                handleHoveredRef.current = true
+                if (handleHideTimeoutRef.current) {
+                  clearTimeout(handleHideTimeoutRef.current)
+                  handleHideTimeoutRef.current = null
+                }
+              }}
+              onMouseLeave={() => {
+                handleHoveredRef.current = false
+                setTimeout(() => {
+                  if (!handleHoveredRef.current && !graphNodeHoverRef.current) {
+                    setHoveredNodeId(null)
+                    setHandleScreenPos(null)
+                  }
+                }, 150)
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                const targetId = hoveredNodeIdRef.current
+                if (!targetId) return
+                const rect = containerRef.current.getBoundingClientRect()
+                setDragEdge({ sourceId: targetId })
+                setDragMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+              }}
+            />
+          ))}
 
           {/* ---- Graph Context Menu ---- */}
           {contextMenu && (
@@ -1007,39 +1029,34 @@ function App() {
             )
           })()}
 
-          {/* ---- FAB (Share/Collaboration panel) ---- */}
+          {/* ---- FAB (Collaboration panel) ---- */}
           {fabOpen && (
             <div className="fixed inset-0 z-30" onClick={() => setFabOpen(false)} />
           )}
           <div className="fixed bottom-6 right-6 z-40">
             {fabOpen && (
-              <div className="absolute bottom-16 right-0 bg-base-100 rounded-2xl shadow-xl w-96 p-6 mb-2">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold">Share</h3>
-                  <button className="btn btn-ghost btn-sm btn-circle" onClick={() => setFabOpen(false)}>
-                    <X className="size-4" />
-                  </button>
-                </div>
-
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold mb-2">Collaborators</h4>
-                  <div className="flex flex-col gap-2">
+              <div className="absolute bottom-16 right-0 bg-base-100 rounded-2xl shadow-xl w-96 mb-2 flex flex-col" style={{ height: '70vh', maxHeight: '680px', minHeight: '420px' }}>
+                {/* Collaborators — compact top section */}
+                <div className="px-6 pt-6 pb-4 border-b border-base-300 shrink-0">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide opacity-60 mb-3">Collaborators</h4>
+                  <div className="flex items-center gap-3">
                     {users.map((c) => (
-                      <div key={c.id} className="flex items-center gap-3 bg-base-200 rounded-lg px-3 py-2">
-                        <div className="avatar">
+                      <div key={c.id} className="tooltip tooltip-bottom" data-tip={c.name}>
+                        <div className={`avatar ${c.id === currentUser.id ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100 rounded-full' : ''}`}>
                           <div className="w-8 rounded-full">
                             <img src={c.avatar} alt={c.name} />
                           </div>
                         </div>
-                        <span className="text-sm font-medium">{c.name}</span>
                       </div>
                     ))}
+                    <span className="text-xs opacity-50">{users.length} members</span>
                   </div>
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-semibold">Comments</h4>
+                {/* Comments — scrollable main section */}
+                <div className="flex-1 flex flex-col min-h-0 px-6 pt-4">
+                  <div className="flex items-center justify-between mb-3 shrink-0">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide opacity-60">Comments</h4>
                     <div className="flex gap-1">
                       {['open', 'resolved', 'all'].map((f) => (
                         <button
@@ -1052,7 +1069,7 @@ function App() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-3 max-h-80 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-6">
                     {comments
                       .filter((c) => {
                         if (commentFilter === 'open') return !c.resolved
@@ -1063,9 +1080,9 @@ function App() {
                         const author = users.find((u) => u.id === c.authorId)
                         const nodeName = nodes.find((n) => n.id === c.nodeId)?.name || 'Unknown'
                         return (
-                          <div key={c.id} className={`bg-base-200 rounded-lg p-3 ${c.resolved ? 'opacity-60' : ''}`}>
-                            <div className="flex items-start justify-between mb-1">
-                              <div className="flex items-center gap-2">
+                          <div key={c.id} className={`bg-base-200 rounded-xl p-4 ${c.resolved ? 'opacity-50' : ''}`}>
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-3">
                                 <div className="avatar">
                                   <div className="w-8 rounded-full">
                                     <img src={author?.avatar} alt={author?.name} />
@@ -1073,27 +1090,37 @@ function App() {
                                 </div>
                                 <div>
                                   <p className="text-sm font-semibold leading-tight">{author?.name}</p>
-                                  <p className="text-xs opacity-60">{nodeName}</p>
+                                  <p className="text-xs opacity-50 mt-0.5">{nodeName} &middot; {new Date(c.createdAt).toLocaleDateString()}</p>
                                 </div>
                               </div>
-                              <button
-                                className="btn btn-ghost btn-xs btn-circle"
-                                onClick={() => removeComment(c.id)}
-                                title="Delete comment"
-                              >
-                                <X className="size-3" />
-                              </button>
+                              <div className="relative">
+                                <button
+                                  className="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100"
+                                  onClick={() => setConfirmDeleteComment(confirmDeleteComment === c.id ? null : c.id)}
+                                  title="Delete comment"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                                {confirmDeleteComment === c.id && (
+                                  <div className="absolute right-0 top-full mt-1 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 z-10 w-48">
+                                    <p className="text-xs font-medium mb-2">Delete this comment?</p>
+                                    <div className="flex justify-end gap-2">
+                                      <button className="btn btn-ghost btn-xs" onClick={() => setConfirmDeleteComment(null)}>Cancel</button>
+                                      <button className="btn btn-error btn-xs" onClick={() => { removeComment(c.id); setConfirmDeleteComment(null) }}>Delete</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <p className="text-sm mt-2">{c.text}</p>
-                            <span className="text-xs opacity-40">{new Date(c.createdAt).toLocaleString()}</span>
+                            <p className="text-sm leading-relaxed mt-3">{c.text}</p>
 
                             {/* Replies */}
                             {c.replies.length > 0 && (
-                              <div className="mt-2 border-t border-base-300 pt-2 flex flex-col gap-2">
+                              <div className="mt-3 border-t border-base-300 pt-3 flex flex-col gap-3">
                                 {c.replies.map((r) => {
                                   const ra = users.find((u) => u.id === r.authorId)
                                   return (
-                                    <div key={r.id} className="flex items-start gap-2">
+                                    <div key={r.id} className="flex items-start gap-2 pl-2">
                                       <div className="avatar">
                                         <div className="w-6 rounded-full">
                                           <img src={ra?.avatar} alt={ra?.name} />
@@ -1101,7 +1128,7 @@ function App() {
                                       </div>
                                       <div>
                                         <span className="text-xs font-semibold">{ra?.name}</span>
-                                        <p className="text-xs">{r.text}</p>
+                                        <p className="text-xs leading-relaxed">{r.text}</p>
                                       </div>
                                     </div>
                                   )
@@ -1111,10 +1138,10 @@ function App() {
 
                             {/* Reply form */}
                             {replyingTo === c.id ? (
-                              <div className="mt-2 flex gap-1">
+                              <div className="mt-3 flex gap-2">
                                 <input
                                   type="text"
-                                  className="input input-xs flex-1"
+                                  className="input input-sm flex-1"
                                   placeholder="Write a reply..."
                                   value={replyText}
                                   onChange={(e) => setReplyText(e.target.value)}
@@ -1129,7 +1156,7 @@ function App() {
                                   }}
                                 />
                                 <button
-                                  className="btn btn-primary btn-xs"
+                                  className="btn btn-primary btn-sm"
                                   disabled={!replyText.trim()}
                                   onClick={() => {
                                     addReply(c.id, replyText.trim())
@@ -1144,13 +1171,13 @@ function App() {
                               !c.resolved && (
                                 <div className="flex justify-end gap-2 mt-3">
                                   <button
-                                    className="btn btn-outline btn-sm gap-1"
+                                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100"
                                     onClick={() => resolveComment(c.id)}
                                   >
                                     <CheckCircle2 className="size-3" /> Resolve
                                   </button>
                                   <button
-                                    className="btn btn-outline btn-sm gap-1"
+                                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100"
                                     onClick={() => { setReplyingTo(c.id); setReplyText('') }}
                                   >
                                     <Reply className="size-3" /> Reply
@@ -1162,7 +1189,10 @@ function App() {
                         )
                       })}
                     {comments.filter((c) => commentFilter === 'open' ? !c.resolved : commentFilter === 'resolved' ? c.resolved : true).length === 0 && (
-                      <p className="text-sm opacity-50 text-center py-4">No comments</p>
+                      <div className="flex-1 flex flex-col items-center justify-center py-8 opacity-40">
+                        <MessageSquare className="size-8 mb-2" />
+                        <p className="text-sm">No comments yet</p>
+                      </div>
                     )}
                   </div>
                 </div>
