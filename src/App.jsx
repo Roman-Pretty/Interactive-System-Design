@@ -1,12 +1,21 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Navbar from './components/Navbar'
 import { Users, X, Filter, Search } from 'lucide-react'
+import ForceGraph2D from 'react-force-graph-2d'
 
 const nodes = [
-  { name: 'Research', color: 'bg-red-500' },
-  { name: 'Literature Review', color: 'bg-purple-500' },
-  { name: 'References and Sources', color: 'bg-blue-600' },
+  { name: 'Research', color: 'bg-red-500', graphColor: '#ef4444' },
+  { name: 'Literature Review', color: 'bg-purple-500', graphColor: '#a855f7' },
+  { name: 'References and Sources', color: 'bg-blue-600', graphColor: '#2563eb' },
 ]
+
+const graphData = {
+  nodes: nodes.map((n, i) => ({ id: `n-${i}`, name: n.name, color: n.graphColor })),
+  links: [
+    { source: 'n-0', target: 'n-1' },
+    { source: 'n-1', target: 'n-2' },
+  ],
+}
 
 const collaborators = [
   { name: 'Roman Pretty', avatar: 'https://img.daisyui.com/images/stock/photo-1534528741775-53994a69daeb.webp' },
@@ -26,6 +35,70 @@ const comments = [
 function App() {
   const [fabOpen, setFabOpen] = useState(false)
   const [nodeSearch, setNodeSearch] = useState('')
+  const [isDark, setIsDark] = useState(false)
+  const graphRef = useRef()
+  const containerRef = useRef()
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
+
+  const contentColor = isDark ? '#f5f5f5' : '#1a1a1a'
+
+  useEffect(() => {
+    const check = () => {
+      const checkbox = document.querySelector('.theme-controller')
+      if (checkbox) {
+        setIsDark(checkbox.checked)
+        return
+      }
+      const theme = document.documentElement.getAttribute('data-theme')
+      setIsDark(theme === 'dark')
+    }
+    check()
+    const checkbox = document.querySelector('.theme-controller')
+    if (checkbox) checkbox.addEventListener('change', check)
+    const observer = new MutationObserver(check)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => {
+      if (checkbox) checkbox.removeEventListener('change', check)
+      observer.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        })
+      }
+    }
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
+
+  useEffect(() => {
+    if (graphRef.current) {
+      graphRef.current.d3Force('charge').strength(-500)
+      graphRef.current.d3Force('link').distance(200)
+      graphRef.current.d3ReheatSimulation()
+      setTimeout(() => graphRef.current.zoom(0.95, 500), 500)
+    }
+  }, [])
+
+  const nodeCanvasObject = useCallback((node, ctx) => {
+    const radius = 20
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI)
+    ctx.fillStyle = node.color
+    ctx.fill()
+
+    ctx.font = '12px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = contentColor
+    ctx.fillText(node.name, node.x, node.y + radius + 4)
+  }, [contentColor])
 
   const filteredNodes = nodes.filter((n) =>
     n.name.toLowerCase().includes(nodeSearch.toLowerCase())
@@ -63,14 +136,37 @@ function App() {
           ))}
         </div>
       </aside>
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0">
         <Navbar />
-        <main className="flex-1 bg-base-200 p-4"
+        <main ref={containerRef} className="flex-1 bg-base-200 relative overflow-hidden min-h-0"
           style={{
-            backgroundImage:
-              'linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px)',
+            backgroundImage: isDark
+              ? 'linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)'
+              : 'linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px)',
             backgroundSize: '32px 32px',
           }}>
+          <ForceGraph2D
+            ref={graphRef}
+            graphData={graphData}
+            width={dimensions.width}
+            height={dimensions.height}
+            backgroundColor="rgba(0,0,0,0)"
+            onRenderFramePre={(ctx, globalScale) => {
+              ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+            }}
+            nodeCanvasObject={nodeCanvasObject}
+            nodePointerAreaPaint={(node, color, ctx) => {
+              ctx.beginPath()
+              ctx.arc(node.x, node.y, 20, 0, 2 * Math.PI)
+              ctx.fillStyle = color
+              ctx.fill()
+            }}
+            linkColor={() => contentColor}
+            linkWidth={2}
+            cooldownTicks={100}
+            enableZoomInteraction={true}
+            enablePanInteraction={true}
+          />
           {fabOpen && (
             <div className="fixed inset-0 z-30" onClick={() => setFabOpen(false)} />
           )}

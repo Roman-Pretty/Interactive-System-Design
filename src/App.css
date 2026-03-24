@@ -1,2 +1,7 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+.force-graph-container canvas {
+  background: transparent !important;
+}
+
