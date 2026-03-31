@@ -25,10 +25,10 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
   }, [])
 
   const handleResolve = (commentId) => {
-    resolveComment(commentId)
     setPendingActions((p) => ({ ...p, [commentId]: 'resolved' }))
     clearTimer(commentId)
     timersRef.current[commentId] = setTimeout(() => {
+      resolveComment(commentId)
       setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
     }, UNDO_TIMEOUT)
   }
@@ -44,17 +44,35 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
 
   const handleUndo = (commentId) => {
     clearTimer(commentId)
-    if (pendingActions[commentId] === 'resolved') {
-      unresolveComment(commentId)
-    }
     setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
   }
 
-  const handleMouseLeave = () => {
-    setReplyingTo(null)
-    setReplyText('')
-    onMouseLeave()
+  const leaveTimerRef = useRef(null)
+
+  const handleMouseEnter = () => {
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+    }
+    onMouseEnter()
   }
+
+  const handleMouseLeave = () => {
+    const hasPending = Object.keys(pendingActions).length > 0
+    const delay = hasPending ? 400 : 0
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current)
+    leaveTimerRef.current = setTimeout(() => {
+      leaveTimerRef.current = null
+      setReplyingTo(null)
+      setReplyText('')
+      onMouseLeave()
+    }, delay)
+  }
+
+  useEffect(() => {
+    const timer = leaveTimerRef.current
+    return () => { if (timer) clearTimeout(timer) }
+  }, [])
 
   return (
     <div
@@ -63,7 +81,7 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
     >
       <div
         className="pointer-events-auto bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-80 overflow-y-auto"
-        onMouseEnter={onMouseEnter}
+        onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
         <div className="flex items-center gap-2 mb-3">

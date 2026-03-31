@@ -25,10 +25,12 @@ function CommentCard({ comment }) {
   useEffect(() => () => clearTimer(), [clearTimer])
 
   const handleResolve = () => {
-    resolveComment(comment.id)
     setPendingAction('resolved')
     clearTimer()
-    timerRef.current = setTimeout(() => setPendingAction(null), UNDO_TIMEOUT)
+    timerRef.current = setTimeout(() => {
+      resolveComment(comment.id)
+      setPendingAction(null)
+    }, UNDO_TIMEOUT)
   }
 
   const handleDelete = () => {
@@ -36,14 +38,12 @@ function CommentCard({ comment }) {
     clearTimer()
     timerRef.current = setTimeout(() => {
       removeComment(comment.id)
+      setPendingAction(null)
     }, UNDO_TIMEOUT)
   }
 
   const handleUndo = () => {
     clearTimer()
-    if (pendingAction === 'resolved') {
-      unresolveComment(comment.id)
-    }
     setPendingAction(null)
   }
 

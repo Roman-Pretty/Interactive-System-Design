@@ -35,7 +35,7 @@ function SidebarTreeNode({
   return (
     <div>
       <div
-        className={`group flex items-center gap-1 py-1 px-1 rounded-md hover:bg-base-200 cursor-pointer ${isCurrentLevel ? 'bg-base-200 font-semibold' : ''} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-500/10' : ''}`}
+        className={`group flex items-center gap-1 py-1 px-1 rounded-md hover:bg-base-200 cursor-pointer ${isCurrentLevel ? 'bg-base-200 font-semibold' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 4}px` }}
         onContextMenu={(e) => {
           e.preventDefault()

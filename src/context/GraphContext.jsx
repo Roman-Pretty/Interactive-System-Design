@@ -191,9 +191,10 @@ export function GraphProvider({ children }) {
   const lastResolvedRef = useRef(null)
 
   const resolveComment = useCallback((commentId) => {
+    pushUndo(structuredClone(db))
     refresh((d) => storeResolveComment(d, commentId))
     lastResolvedRef.current = commentId
-  }, [refresh])
+  }, [refresh, db, pushUndo])
 
   const unresolveComment = useCallback((commentId) => {
     refresh((d) => storeUnresolveComment(d, commentId))
@@ -226,8 +227,9 @@ export function GraphProvider({ children }) {
   }, [refresh])
 
   const removeComment = useCallback((commentId) => {
+    pushUndo(structuredClone(db))
     refresh((d) => storeDeleteComment(d, commentId))
-  }, [refresh])
+  }, [refresh, db, pushUndo])
 
   const removeReply = useCallback((commentId, replyId) => {
     refresh((d) => storeDeleteReply(d, commentId, replyId))
