@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useGraph } from '../context/GraphContext'
 
 function MentionTextarea({ value, onChange, placeholder, className, autoFocus, onKeyDown, rows }) {
@@ -6,7 +7,9 @@ function MentionTextarea({ value, onChange, placeholder, className, autoFocus, o
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [filter, setFilter] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [dropdownPos, setDropdownPos] = useState(null)
   const textareaRef = useRef(null)
+  const wrapperRef = useRef(null)
 
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(filter.toLowerCase()),
@@ -15,6 +18,18 @@ function MentionTextarea({ value, onChange, placeholder, className, autoFocus, o
   useEffect(() => {
     setSelectedIndex(0)
   }, [filter])
+
+  // Calculate portal position when suggestions show
+  useEffect(() => {
+    if (showSuggestions && wrapperRef.current) {
+      const rect = wrapperRef.current.getBoundingClientRect()
+      setDropdownPos({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+      })
+    }
+  }, [showSuggestions, filter])
 
   const getMentionQuery = (text, cursorPos) => {
     const before = text.slice(0, cursorPos)
@@ -101,7 +116,7 @@ function MentionTextarea({ value, onChange, placeholder, className, autoFocus, o
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapperRef}>
       <textarea
         ref={textareaRef}
         className={className}
@@ -112,8 +127,16 @@ function MentionTextarea({ value, onChange, placeholder, className, autoFocus, o
         autoFocus={autoFocus}
         rows={rows}
       />
-      {showSuggestions && filteredUsers.length > 0 && (
-        <div className="absolute left-0 right-0 bottom-full mb-1 bg-base-100 rounded-lg shadow-xl border border-base-300 z-[60] max-h-40 overflow-y-auto">
+      {showSuggestions && filteredUsers.length > 0 && dropdownPos && createPortal(
+        <div
+          className="fixed bg-base-100 rounded-lg shadow-xl border border-base-300 z-[9999] max-h-40 overflow-y-auto"
+          style={{
+            left: dropdownPos.left,
+            top: dropdownPos.top - 4,
+            width: dropdownPos.width,
+            transform: 'translateY(-100%)',
+          }}
+        >
           {filteredUsers.map((user, i) => (
             <button
               key={user.id}
@@ -133,7 +156,8 @@ function MentionTextarea({ value, onChange, placeholder, className, autoFocus, o
               <span className="font-medium">{user.name}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

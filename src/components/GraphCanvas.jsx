@@ -43,7 +43,6 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
   const dragCompletedRef = useRef(false)
   const hoverScreenPosRef = useRef({ x: 0, y: 0 })
   const pinnedTooltipRef = useRef(null)
-  const tooltipHideTimeoutRef = useRef(null)
   const handleHoveredRef = useRef(false)
   const handleHideTimeoutRef = useRef(null)
   const graphNodeHoverRef = useRef(null)
@@ -372,13 +371,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
         clearTimeout(handleHideTimeoutRef.current)
         handleHideTimeoutRef.current = null
       }
-      if (tooltipHideTimeoutRef.current) {
-        clearTimeout(tooltipHideTimeoutRef.current)
-        tooltipHideTimeoutRef.current = null
-      }
       setHoveredNodeId(node.id)
-      const pos = hoverScreenPosRef.current
-      setCommentTooltipPos({ x: pos.x + 24, y: pos.y - 12 })
     } else {
       handleHideTimeoutRef.current = setTimeout(() => {
         if (!handleHoveredRef.current) {
@@ -386,12 +379,6 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
         }
         handleHideTimeoutRef.current = null
       }, 300)
-      if (!pinnedTooltipRef.current) {
-        tooltipHideTimeoutRef.current = setTimeout(() => {
-          setCommentTooltipPos(null)
-          tooltipHideTimeoutRef.current = null
-        }, 800)
-      }
     }
   }, [])
 
@@ -414,19 +401,31 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
       lastClickRef.current = { nodeId: null, time: 0 }
       navigateInto(node.id)
     } else {
-      // Single click: select / toggle-select
+      // Single click: select / toggle-select + open comments
       lastClickRef.current = { nodeId: node.id, time: now }
       if (event.ctrlKey || event.metaKey) {
         toggleSelectNode(node.id)
       } else {
         selectNode(node.id)
       }
+      // Open comment tooltip on click if node has comments
+      const nodeHasComments = comments.some((c) => c.nodeId === node.id && !c.resolved)
+      if (nodeHasComments) {
+        const pos = hoverScreenPosRef.current
+        setPinnedTooltipNodeId(node.id)
+        setCommentTooltipPos({ x: pos.x + 24, y: pos.y - 12 })
+      } else {
+        setPinnedTooltipNodeId(null)
+        setCommentTooltipPos(null)
+      }
     }
-  }, [dragEdge, addEdge, navigateInto, selectNode, toggleSelectNode, highlightedNodeId, onClearHighlight])
+  }, [dragEdge, addEdge, navigateInto, selectNode, toggleSelectNode, highlightedNodeId, onClearHighlight, comments])
 
   const handleBackgroundClick = useCallback(() => {
     if (highlightedNodeId) onClearHighlight()
     clearSelection()
+    setPinnedTooltipNodeId(null)
+    setCommentTooltipPos(null)
     if (dragEdge) {
       setDragEdge(null)
       setDragMousePos(null)
@@ -476,8 +475,8 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
   }
 
   // Tooltip logic
-  const tooltipTargetNodeId = pinnedTooltipNodeId || hoveredNodeId
-  const showTooltip = (hoveredNodeId || pinnedTooltipNodeId) && commentTooltipPos && !dragEdge && !commentFormNodeId
+  const tooltipTargetNodeId = pinnedTooltipNodeId
+  const showTooltip = pinnedTooltipNodeId && commentTooltipPos && !dragEdge && !commentFormNodeId
   const tooltipNodeComments = showTooltip
     ? comments.filter((c) => c.nodeId === tooltipTargetNodeId && !c.resolved)
     : []
@@ -606,20 +605,13 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
         />
       )}
 
-      {/* Comment Tooltip on hover */}
+      {/* Comment Tooltip on click */}
       {showTooltip && tooltipNodeComments.length > 0 && (
         <CommentTooltip
           targetNodeId={tooltipTargetNodeId}
           position={commentTooltipPos}
           nodeComments={tooltipNodeComments}
-          onMouseEnter={() => {
-            if (tooltipHideTimeoutRef.current) {
-              clearTimeout(tooltipHideTimeoutRef.current)
-              tooltipHideTimeoutRef.current = null
-            }
-            setPinnedTooltipNodeId(tooltipTargetNodeId)
-          }}
-          onMouseLeave={() => {
+          onClose={() => {
             setPinnedTooltipNodeId(null)
             setCommentTooltipPos(null)
           }}

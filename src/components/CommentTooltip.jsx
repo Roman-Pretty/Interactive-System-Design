@@ -1,196 +1,32 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { MessageSquare, CheckCircle2, Reply, Send, Trash2 } from 'lucide-react'
-import { useGraph } from '../context/GraphContext'
-import MentionText from './MentionText'
+import { MessageSquare, X } from 'lucide-react'
+import CommentItem from './CommentItem'
 
-const UNDO_TIMEOUT = 5000
-
-function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) {
-  const { users, addReply, resolveComment, unresolveComment, removeComment } = useGraph()
-
-  const [replyingTo, setReplyingTo] = useState(null)
-  const [replyText, setReplyText] = useState('')
-  const [pendingActions, setPendingActions] = useState({}) // { [commentId]: 'resolved' | 'deleted' }
-  const timersRef = useRef({})
-
-  const clearTimer = useCallback((id) => {
-    if (timersRef.current[id]) {
-      clearTimeout(timersRef.current[id])
-      delete timersRef.current[id]
-    }
-  }, [])
-
-  useEffect(() => {
-    const timers = timersRef.current
-    return () => Object.values(timers).forEach(clearTimeout)
-  }, [])
-
-  const handleResolve = (commentId) => {
-    setPendingActions((p) => ({ ...p, [commentId]: 'resolved' }))
-    clearTimer(commentId)
-    timersRef.current[commentId] = setTimeout(() => {
-      resolveComment(commentId)
-      setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
-    }, UNDO_TIMEOUT)
-  }
-
-  const handleDelete = (commentId) => {
-    setPendingActions((p) => ({ ...p, [commentId]: 'deleted' }))
-    clearTimer(commentId)
-    timersRef.current[commentId] = setTimeout(() => {
-      removeComment(commentId)
-      setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
-    }, UNDO_TIMEOUT)
-  }
-
-  const handleUndo = (commentId) => {
-    clearTimer(commentId)
-    setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
-  }
-
-  const leaveTimerRef = useRef(null)
-
-  const handleMouseEnter = () => {
-    if (leaveTimerRef.current) {
-      clearTimeout(leaveTimerRef.current)
-      leaveTimerRef.current = null
-    }
-    onMouseEnter()
-  }
-
-  const handleMouseLeave = () => {
-    const hasPending = Object.keys(pendingActions).length > 0
-    const delay = hasPending ? 400 : 0
-    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current)
-    leaveTimerRef.current = setTimeout(() => {
-      leaveTimerRef.current = null
-      setReplyingTo(null)
-      setReplyText('')
-      onMouseLeave()
-    }, delay)
-  }
-
-  useEffect(() => {
-    const timer = leaveTimerRef.current
-    return () => { if (timer) clearTimeout(timer) }
-  }, [])
-
+function CommentTooltip({ position, nodeComments, onClose }) {
   return (
     <div
-      className="absolute z-40 pointer-events-none"
-      style={{ left: position.x - 40, top: position.y - 40, padding: 40 }}
+      className="absolute z-40"
+      style={{ left: position.x, top: position.y }}
+      onClick={(e) => e.stopPropagation()}
     >
-      <div
-        className="pointer-events-auto bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-80 overflow-y-auto"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      >
-        <div className="flex items-center gap-2 mb-3">
+      <div className="bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 p-4 w-80 max-h-96 overflow-visible flex flex-col">
+        <div className="flex items-center gap-2 mb-3 shrink-0">
           <div className="w-6 h-6 rounded-full bg-warning/15 flex items-center justify-center">
             <MessageSquare className="size-3 text-warning" />
           </div>
-          <span className="text-xs font-semibold opacity-60">
+          <span className="text-xs font-semibold opacity-60 flex-1">
             {nodeComments.length} comment{nodeComments.length !== 1 ? 's' : ''}
           </span>
+          <button
+            className="btn btn-ghost btn-xs btn-circle opacity-50 hover:opacity-100"
+            onClick={onClose}
+          >
+            <X className="size-3.5" />
+          </button>
         </div>
-        <div className="flex flex-col gap-3">
-          {nodeComments.map((c) => {
-            const pending = pendingActions[c.id]
-            if (pending) {
-              const label = pending === 'resolved' ? 'Comment resolved.' : 'Comment deleted.'
-              return (
-                <div key={c.id} className="rounded-xl border-2 border-dashed border-base-300 p-4 flex items-center justify-center">
-                  <p className="text-xs opacity-60">
-                    {label}{' '}
-                    <button className="underline hover:opacity-100 cursor-pointer" onClick={() => handleUndo(c.id)}>
-                      Undo
-                    </button>
-                  </p>
-                </div>
-              )
-            }
-            const author = users.find((u) => u.id === c.authorId)
-            return (
-              <div key={c.id} className="bg-base-200/60 rounded-xl p-3">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="avatar">
-                    <div className="w-5 rounded-full">
-                      <img src={author?.avatar} alt={author?.name} />
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold">{author?.name}</span>
-                  <span className="text-[10px] opacity-40 ml-auto">{new Date(c.createdAt).toLocaleDateString()}</span>
-                  <button
-                    className="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100 ml-1"
-                    onClick={() => handleDelete(c.id)}
-                    title="Delete comment"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </div>
-                <p className="text-xs leading-relaxed ml-7"><MentionText text={c.text} /></p>
-                {c.replies.length > 0 && (
-                  <div className="ml-7 mt-2 border-l-2 border-base-300 pl-2.5 flex flex-col gap-1.5">
-                    {c.replies.map((r) => {
-                      const ra = users.find((u) => u.id === r.authorId)
-                      return (
-                        <div key={r.id}>
-                          <span className="text-[11px] font-semibold">{ra?.name}: </span>
-                          <span className="text-[11px] opacity-80"><MentionText text={r.text} /></span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {replyingTo === c.id ? (
-                  <div className="ml-7 mt-2 flex gap-1">
-                    <input
-                      type="text"
-                      className="input input-xs flex-1 bg-base-100 border-base-300 focus:border-warning/50 focus:outline-none"
-                      placeholder="Reply..."
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && replyText.trim()) {
-                          addReply(c.id, replyText.trim())
-                          setReplyText('')
-                          setReplyingTo(null)
-                        }
-                        if (e.key === 'Escape') { setReplyingTo(null); setReplyText('') }
-                      }}
-                    />
-                    <button
-                      className="btn btn-warning btn-xs"
-                      disabled={!replyText.trim()}
-                      onClick={() => {
-                        addReply(c.id, replyText.trim())
-                        setReplyText('')
-                        setReplyingTo(null)
-                      }}
-                    >
-                      <Send className="size-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex justify-end gap-1.5 mt-2">
-                    <button
-                      className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100"
-                      onClick={() => handleResolve(c.id)}
-                    >
-                      <CheckCircle2 className="size-3" /> Resolve
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100"
-                      onClick={() => { setReplyingTo(c.id); setReplyText('') }}
-                    >
-                      <Reply className="size-3" /> Reply
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div className="flex flex-col gap-3 overflow-y-auto max-h-72">
+          {nodeComments.map((c) => (
+            <CommentItem key={c.id} comment={c} compact />
+          ))}
         </div>
       </div>
     </div>
