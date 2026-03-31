@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Trash2, CheckCircle2, Reply, Send } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
+import MentionText from './MentionText'
+import MentionTextarea from './MentionTextarea'
 
 const UNDO_TIMEOUT = 5000
 
@@ -85,7 +87,7 @@ function CommentCard({ comment }) {
           </button>
         )}
       </div>
-      <p className="text-sm leading-relaxed mt-3">{comment.text}</p>
+      <p className="text-sm leading-relaxed mt-3"><MentionText text={comment.text} /></p>
 
       {comment.replies.length > 0 && (
         <div className="mt-3 border-t border-base-300 pt-3 flex flex-col gap-3">
@@ -100,7 +102,7 @@ function CommentCard({ comment }) {
                 </div>
                 <div className="flex-1">
                   <span className="text-xs font-semibold">{ra?.name}</span>
-                  <p className="text-xs leading-relaxed">{r.text}</p>
+                  <p className="text-xs leading-relaxed"><MentionText text={r.text} /></p>
                 </div>
                 {currentUser.id === r.authorId && (
                   <button
@@ -118,16 +120,16 @@ function CommentCard({ comment }) {
       )}
 
       {replyingTo ? (
-        <div className="mt-3 flex gap-2">
-          <input
-            type="text"
-            className="input input-sm flex-1"
-            placeholder="Write a reply..."
+        <div className="mt-3 flex flex-col gap-2">
+          <MentionTextarea
+            className="textarea textarea-sm w-full min-h-20 bg-base-200/50 border-base-300 focus:border-primary/50 focus:outline-none"
+            placeholder="Write a reply... use @ to mention"
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onChange={setReplyText}
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && replyText.trim()) {
+              if (e.key === 'Enter' && !e.shiftKey && replyText.trim()) {
+                e.preventDefault()
                 addReply(comment.id, replyText.trim())
                 setReplyText('')
                 setReplyingTo(false)

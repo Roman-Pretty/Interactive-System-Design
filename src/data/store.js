@@ -25,11 +25,19 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
+const ROLES = ['owner', 'editor', 'viewer']
+
+const ROLE_LABELS = {
+  owner: 'Owner',
+  editor: 'Editor',
+  viewer: 'Viewer',
+}
+
 const SEED = {
   users: [
-    { id: 'u-1', name: 'Roman Pretty', avatar: 'https://i.pravatar.cc/150?u=roman.pretty' },
-    { id: 'u-2', name: 'Ilenia Maietta', avatar: 'https://i.pravatar.cc/150?u=ilenia.maietta' },
-    { id: 'u-3', name: 'Other User', avatar: 'https://i.pravatar.cc/150?u=other.user' },
+    { id: 'u-1', name: 'Roman Pretty', avatar: 'https://i.pravatar.cc/150?u=roman.pretty', role: 'owner' },
+    { id: 'u-2', name: 'Ilenia Maietta', avatar: 'https://i.pravatar.cc/150?u=ilenia.maietta', role: 'editor' },
+    { id: 'u-3', name: 'Other User', avatar: 'https://i.pravatar.cc/150?u=other.user', role: 'viewer' },
   ],
   nodes: [
     { id: 'n-0', name: 'Research', color: 'bg-red-500', graphColor: '#ef4444', parentId: null },
@@ -52,6 +60,7 @@ const SEED = {
       replies: [],
     },
   ],
+  actionHistory: [],
   currentUserId: 'u-1',
 }
 
@@ -62,6 +71,11 @@ export function loadDB() {
       const parsed = JSON.parse(raw)
       if (parsed && parsed.users && parsed.nodes && parsed.edges) {
         if (!parsed.comments) parsed.comments = []
+        if (!parsed.actionHistory) parsed.actionHistory = []
+        // Migrate: add roles if missing
+        parsed.users.forEach((u) => {
+          if (!u.role) u.role = u.id === parsed.currentUserId ? 'owner' : 'collaborator'
+        })
         return parsed
       }
     }
@@ -139,15 +153,45 @@ export function setCurrentUser(db, userId) {
   db.currentUserId = userId
 }
 
+export function changeUserRole(db, userId, newRole) {
+  const user = db.users.find((u) => u.id === userId)
+  if (user && ROLES.includes(newRole)) user.role = newRole
+}
+
+export function removeUser(db, userId) {
+  db.users = db.users.filter((u) => u.id !== userId)
+}
+
 export function resetDB() {
   const fresh = structuredClone(SEED)
   saveDB(fresh)
   return fresh
 }
 
+// ---- Mention extraction ----
+
+export function extractMentions(text, users) {
+  const mentions = []
+  const sorted = [...users].sort((a, b) => b.name.length - a.name.length)
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '@') {
+      const afterAt = text.slice(i + 1)
+      for (const user of sorted) {
+        if (afterAt.toLowerCase().startsWith(user.name.toLowerCase())) {
+          if (!mentions.includes(user.id)) mentions.push(user.id)
+          i += user.name.length
+          break
+        }
+      }
+    }
+  }
+  return mentions
+}
+
 // ---- Comment operations ----
 
 export function addComment(db, nodeId, authorId, text) {
+  const mentions = extractMentions(text, db.users)
   const comment = {
     id: generateId(),
     nodeId,
@@ -156,6 +200,7 @@ export function addComment(db, nodeId, authorId, text) {
     createdAt: Date.now(),
     resolved: false,
     readBy: [authorId],
+    mentions,
     replies: [],
   }
   db.comments.push(comment)
@@ -165,11 +210,13 @@ export function addComment(db, nodeId, authorId, text) {
 export function addReply(db, commentId, authorId, text) {
   const comment = db.comments.find((c) => c.id === commentId)
   if (!comment) return null
+  const mentions = extractMentions(text, db.users)
   const reply = {
     id: generateId(),
     authorId,
     text,
     createdAt: Date.now(),
+    mentions,
   }
   comment.replies.push(reply)
   // Mark unread for everyone except the replier
@@ -199,11 +246,26 @@ export function deleteComment(db, commentId) {
   db.comments = db.comments.filter((c) => c.id !== commentId)
 }
 
+export { ROLES, ROLE_LABELS }
+
 export function deleteReply(db, commentId, replyId) {
   const comment = db.comments.find((c) => c.id === commentId)
   if (comment) {
     comment.replies = comment.replies.filter((r) => r.id !== replyId)
   }
+}
+
+export function addHistoryEntry(db, type, userId, details = {}) {
+  if (!db.actionHistory) db.actionHistory = []
+  db.actionHistory.unshift({
+    id: generateId(),
+    type,
+    userId,
+    timestamp: Date.now(),
+    details,
+  })
+  // Keep max 200 entries
+  if (db.actionHistory.length > 200) db.actionHistory.length = 200
 }
 
 export { AVAILABLE_COLORS, COLOR_MAP }

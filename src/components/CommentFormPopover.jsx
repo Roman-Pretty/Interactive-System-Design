@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MessageSquare, Send } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
+import MentionTextarea from './MentionTextarea'
 
 function CommentFormPopover({ nodeId, position, onClose }) {
   const { nodes, addComment } = useGraph()
@@ -27,12 +28,12 @@ function CommentFormPopover({ nodeId, position, onClose }) {
           </span>
         </div>
       </div>
-      <textarea
+      <MentionTextarea
         className="textarea textarea-sm w-full min-h-20 bg-base-200/50 border-base-300 focus:border-warning/50 focus:outline-none"
-        placeholder="Write a comment..."
+        placeholder="Write a comment... use @ to mention"
         rows={3}
         value={commentText}
-        onChange={(e) => setCommentText(e.target.value)}
+        onChange={setCommentText}
         autoFocus
       />
       <div className="flex gap-2 mt-3 justify-end">

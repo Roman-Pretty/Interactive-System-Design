@@ -17,7 +17,12 @@ import {
   markCommentRead as storeMarkCommentRead,
   deleteComment as storeDeleteComment,
   deleteReply as storeDeleteReply,
+  changeUserRole as storeChangeUserRole,
+  removeUser as storeRemoveUser,
+  addHistoryEntry as storeAddHistory,
   resetDB,
+  ROLES,
+  ROLE_LABELS,
 } from '../data/store'
 
 const GraphContext = createContext(null)
@@ -41,7 +46,7 @@ export function GraphProvider({ children }) {
 
   const refresh = useCallback((updater) => {
     setDb((prev) => {
-      const next = { ...prev, nodes: [...prev.nodes], edges: [...prev.edges], users: [...prev.users], comments: [...(prev.comments || []).map((c) => ({ ...c, replies: [...c.replies] }))] }
+      const next = { ...prev, nodes: [...prev.nodes], edges: [...prev.edges], users: [...prev.users], comments: [...(prev.comments || []).map((c) => ({ ...c, replies: [...c.replies] }))], actionHistory: [...(prev.actionHistory || [])] }
       updater(next)
       saveDB(next)
       return next
@@ -53,13 +58,18 @@ export function GraphProvider({ children }) {
     let node
     refresh((d) => {
       node = storeAddNode(d, name, color, parentId)
+      storeAddHistory(d, 'node_created', d.currentUserId, { nodeName: name })
     })
     return node
   }, [refresh, db, pushUndo])
 
   const renameNode = useCallback((nodeId, newName) => {
     pushUndo(structuredClone(db))
-    refresh((d) => storeRenameNode(d, nodeId, newName))
+    const oldName = db.nodes.find((n) => n.id === nodeId)?.name || ''
+    refresh((d) => {
+      storeRenameNode(d, nodeId, newName)
+      storeAddHistory(d, 'node_renamed', d.currentUserId, { nodeName: oldName, newName })
+    })
   }, [refresh, db, pushUndo])
 
   const deleteNode = useCallback((nodeId) => {
@@ -69,19 +79,34 @@ export function GraphProvider({ children }) {
       const parent = db.nodes.find((n) => n.id === nodeId)
       setCurrentParentId(parent?.parentId || null)
     }
-    refresh((d) => storeDeleteNode(d, nodeId))
+    const nodeName = db.nodes.find((n) => n.id === nodeId)?.name || ''
+    refresh((d) => {
+      storeDeleteNode(d, nodeId)
+      storeAddHistory(d, 'node_deleted', d.currentUserId, { nodeName })
+    })
   }, [refresh, currentParentId, db, pushUndo])
 
   const addEdge = useCallback((sourceId, targetId) => {
     let edge
     refresh((d) => {
       edge = storeAddEdge(d, sourceId, targetId)
+      if (edge) {
+        const srcName = d.nodes.find((n) => n.id === sourceId)?.name || ''
+        const tgtName = d.nodes.find((n) => n.id === targetId)?.name || ''
+        storeAddHistory(d, 'edge_created', d.currentUserId, { sourceName: srcName, targetName: tgtName })
+      }
     })
     return edge
   }, [refresh])
 
   const deleteEdge = useCallback((edgeId) => {
-    refresh((d) => storeDeleteEdge(d, edgeId))
+    refresh((d) => {
+      const edge = d.edges.find((e) => e.id === edgeId)
+      const srcName = edge ? (d.nodes.find((n) => n.id === edge.source)?.name || '') : ''
+      const tgtName = edge ? (d.nodes.find((n) => n.id === edge.target)?.name || '') : ''
+      storeDeleteEdge(d, edgeId)
+      storeAddHistory(d, 'edge_deleted', d.currentUserId, { sourceName: srcName, targetName: tgtName })
+    })
   }, [refresh])
 
   const setCurrentUser = useCallback((userId) => {
@@ -176,6 +201,8 @@ export function GraphProvider({ children }) {
     let comment
     refresh((d) => {
       comment = storeAddComment(d, nodeId, d.currentUserId, text)
+      const nodeName = d.nodes.find((n) => n.id === nodeId)?.name || ''
+      storeAddHistory(d, 'comment_added', d.currentUserId, { nodeName, text: text.slice(0, 80) })
     })
     return comment
   }, [refresh])
@@ -184,6 +211,9 @@ export function GraphProvider({ children }) {
     let reply
     refresh((d) => {
       reply = storeAddReply(d, commentId, d.currentUserId, text)
+      const comment = d.comments.find((c) => c.id === commentId)
+      const nodeName = comment ? (d.nodes.find((n) => n.id === comment.nodeId)?.name || '') : ''
+      storeAddHistory(d, 'reply_added', d.currentUserId, { nodeName, text: text.slice(0, 80) })
     })
     return reply
   }, [refresh])
@@ -192,14 +222,25 @@ export function GraphProvider({ children }) {
 
   const resolveComment = useCallback((commentId) => {
     pushUndo(structuredClone(db))
-    refresh((d) => storeResolveComment(d, commentId))
+    refresh((d) => {
+      storeResolveComment(d, commentId)
+      const comment = d.comments.find((c) => c.id === commentId)
+      const nodeName = comment ? (d.nodes.find((n) => n.id === comment.nodeId)?.name || '') : ''
+      storeAddHistory(d, 'comment_resolved', d.currentUserId, { nodeName })
+    })
     lastResolvedRef.current = commentId
   }, [refresh, db, pushUndo])
 
   const unresolveComment = useCallback((commentId) => {
-    refresh((d) => storeUnresolveComment(d, commentId))
+    pushUndo(structuredClone(db))
+    refresh((d) => {
+      storeUnresolveComment(d, commentId)
+      const comment = d.comments.find((c) => c.id === commentId)
+      const nodeName = comment ? (d.nodes.find((n) => n.id === comment.nodeId)?.name || '') : ''
+      storeAddHistory(d, 'comment_unresolved', d.currentUserId, { nodeName })
+    })
     if (lastResolvedRef.current === commentId) lastResolvedRef.current = null
-  }, [refresh])
+  }, [refresh, db, pushUndo])
 
   const undoLastResolve = useCallback(() => {
     if (lastResolvedRef.current) {
@@ -228,14 +269,36 @@ export function GraphProvider({ children }) {
 
   const removeComment = useCallback((commentId) => {
     pushUndo(structuredClone(db))
-    refresh((d) => storeDeleteComment(d, commentId))
+    refresh((d) => {
+      const comment = d.comments.find((c) => c.id === commentId)
+      const nodeName = comment ? (d.nodes.find((n) => n.id === comment.nodeId)?.name || '') : ''
+      storeDeleteComment(d, commentId)
+      storeAddHistory(d, 'comment_deleted', d.currentUserId, { nodeName })
+    })
   }, [refresh, db, pushUndo])
 
   const removeReply = useCallback((commentId, replyId) => {
-    refresh((d) => storeDeleteReply(d, commentId, replyId))
+    pushUndo(structuredClone(db))
+    refresh((d) => {
+      const comment = d.comments.find((c) => c.id === commentId)
+      const nodeName = comment ? (d.nodes.find((n) => n.id === comment.nodeId)?.name || '') : ''
+      storeDeleteReply(d, commentId, replyId)
+      storeAddHistory(d, 'reply_deleted', d.currentUserId, { nodeName })
+    })
+  }, [refresh, db, pushUndo])
+
+  const changeUserRole = useCallback((userId, newRole) => {
+    refresh((d) => storeChangeUserRole(d, userId, newRole))
   }, [refresh])
 
+  const removeUser = useCallback((userId) => {
+    refresh((d) => storeRemoveUser(d, userId))
+  }, [refresh])
+
+  const isOwner = currentUser.role === 'owner'
+
   const comments = db.comments || []
+  const actionHistory = db.actionHistory || []
 
   const unreadComments = useMemo(
     () => comments.filter((c) => !c.resolved && !c.readBy.includes(currentUser.id)),
@@ -274,6 +337,12 @@ export function GraphProvider({ children }) {
         markCommentRead,
         removeComment,
         removeReply,
+        changeUserRole,
+        removeUser,
+        isOwner,
+        actionHistory,
+        ROLES,
+        ROLE_LABELS,
         reset,
         undo,
         redo,

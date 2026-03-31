@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageSquare, CheckCircle2, Reply, Send, Trash2 } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
+import MentionText from './MentionText'
 
 const UNDO_TIMEOUT = 5000
 
@@ -127,7 +128,7 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
                     <Trash2 className="size-3" />
                   </button>
                 </div>
-                <p className="text-xs leading-relaxed ml-7">{c.text}</p>
+                <p className="text-xs leading-relaxed ml-7"><MentionText text={c.text} /></p>
                 {c.replies.length > 0 && (
                   <div className="ml-7 mt-2 border-l-2 border-base-300 pl-2.5 flex flex-col gap-1.5">
                     {c.replies.map((r) => {
@@ -135,7 +136,7 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
                       return (
                         <div key={r.id}>
                           <span className="text-[11px] font-semibold">{ra?.name}: </span>
-                          <span className="text-[11px] opacity-80">{r.text}</span>
+                          <span className="text-[11px] opacity-80"><MentionText text={r.text} /></span>
                         </div>
                       )
                     })}

@@ -14,7 +14,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
   const {
     visibleNodes, edges, comments,
     currentParentId, navigateInto, navigateUp,
-    addEdge,
+    addEdge, deleteNode,
     selectedNodeIds, selectNode, toggleSelectNode, clearSelection,
   } = useGraph()
 
@@ -97,7 +97,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
     return () => window.removeEventListener('click', close)
   }, [])
 
-  // Escape key cancels edge drag, context form, or clears selection
+  // Keyboard shortcuts: Escape cancels, Delete/Backspace deletes selected nodes
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -105,10 +105,17 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
         else if (ctxAddForm) setCtxAddForm(null)
         else clearSelection()
       }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeIds.size > 0) {
+        const tag = e.target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return
+        e.preventDefault()
+        for (const id of selectedNodeIds) deleteNode(id)
+        clearSelection()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [dragEdge, ctxAddForm, clearSelection])
+  }, [dragEdge, ctxAddForm, clearSelection, selectedNodeIds, deleteNode])
 
   // Track handle overlay screen positions via requestAnimationFrame
   useEffect(() => {

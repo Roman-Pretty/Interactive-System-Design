@@ -1,14 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, PanelLeftClose, MessageSquare } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Search, Plus, PanelLeftClose, MessageSquare, History, Shield, ShieldCheck, Crown, X } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
+import { openShareModal } from './Navbar'
+
+const ROLE_ICON = {
+  owner: Crown,
+  editor: ShieldCheck,
+  viewer: Shield,
+}
+
+const ROLE_COLOR = {
+  owner: 'text-warning',
+  editor: 'text-success',
+  viewer: 'text-info',
+}
 import BreadcrumbNav from './BreadcrumbNav'
 import SidebarTreeNode from './SidebarTreeNode'
 import SidebarContextMenu from './SidebarContextMenu'
 import AddNodeForm from './AddNodeForm'
 import CommentCard from './CommentCard'
+import ActionHistoryPanel from './ActionHistoryPanel'
 
 function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, renameValue, setRenameValue }) {
-  const { nodes, currentParentId, breadcrumbs, navigateInto, addNode, users, currentUser, comments } = useGraph()
+  const { nodes, currentParentId, breadcrumbs, navigateInto, addNode, users, currentUser, comments, ROLE_LABELS, isOwner, changeUserRole, removeUser, ROLES } = useGraph()
 
   const [nodeSearch, setNodeSearch] = useState('')
   const [addFormOpen, setAddFormOpen] = useState(false)
@@ -16,6 +30,9 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
   const [expanded, setExpanded] = useState(new Set())
   const [sidebarMenu, setSidebarMenu] = useState(null)
   const [commentFilter, setCommentFilter] = useState('open')
+  const [bottomTab, setBottomTab] = useState('comments')
+  const [ctxMenu, setCtxMenu] = useState(null)
+  const ctxRef = useRef(null)
 
   const filteredComments = comments.filter((c) => {
     if (commentFilter === 'open') return !c.resolved
@@ -29,6 +46,22 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+
+  // Close collaborator context menu on outside click
+  useEffect(() => {
+    if (!ctxMenu) return
+    const handler = (e) => {
+      if (ctxRef.current && !ctxRef.current.contains(e.target)) setCtxMenu(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [ctxMenu])
+
+  const handleCollaboratorContextMenu = (e, user) => {
+    if (!isOwner || user.id === currentUser.id) return
+    e.preventDefault()
+    setCtxMenu({ x: e.clientX, y: e.clientY, userId: user.id })
+  }
 
   const toggleExpand = useCallback((nodeId) => {
     setExpanded((prev) => {
@@ -143,19 +176,26 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
 
       {/* ---- Collaborators ---- */}
       <div className="shrink-0 mb-1">
-        <div className="breadcrumbs text-sm mb-1"><ul><li>Collaborators</li></ul></div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="breadcrumbs text-sm"><ul><li>Collaborators</li></ul></div>
+          <button className="btn btn-ghost btn-xs btn-circle" onClick={openShareModal} title="Invite collaborator">
+            <Plus className="size-3.5" />
+          </button>
+        </div>
         <div className="flex flex-col w-full">
           {users.filter((u) => u.id !== currentUser.id).map((u) => (
             <div
               key={u.id}
-              className="flex items-center gap-2 py-1 px-1 rounded-md hover:bg-base-200 cursor-default"
+              className={`flex items-center gap-2 py-1 px-1 rounded-md hover:bg-base-200 ${isOwner ? 'cursor-context-menu' : 'cursor-default'}`}
+              onContextMenu={(e) => handleCollaboratorContextMenu(e, u)}
             >
               <div className="avatar online placeholder">
                 <div className="w-5 rounded-full">
                   <img src={u.avatar} alt={u.name} />
                 </div>
               </div>
-              <span className="text-sm truncate">{u.name}</span>
+              <span className="text-sm truncate flex-1">{u.name}</span>
+              <span className={`text-xs opacity-60 ${ROLE_COLOR[u.role] || ''}`}>{ROLE_LABELS[u.role] || u.role}</span>
             </div>
           ))}
         </div>
@@ -164,33 +204,55 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
       {/* ---- Divider ---- */}
       <div className="border-t border-base-300 my-3 shrink-0" />
 
-      {/* ---- Comments ---- */}
+      {/* ---- Tab Switcher ---- */}
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center justify-between mb-2 shrink-0">
-          <div className="breadcrumbs text-sm"><ul><li>Comments</li></ul></div>
-          <div className="flex gap-1">
-            {['open', 'resolved', 'all'].map((f) => (
-              <button
-                key={f}
-                className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
-                onClick={() => setCommentFilter(f)}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-1 mb-2 shrink-0">
+          <button
+            className={`btn btn-ghost btn-xs gap-1 ${bottomTab === 'comments' ? 'btn-active' : ''}`}
+            onClick={() => setBottomTab('comments')}
+          >
+            <MessageSquare className="size-3.5" /> Comments
+          </button>
+          <button
+            className={`btn btn-ghost btn-xs gap-1 ${bottomTab === 'history' ? 'btn-active' : ''}`}
+            onClick={() => setBottomTab('history')}
+          >
+            <History className="size-3.5" /> History
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">
-          {filteredComments.map((c) => (
-            <CommentCard key={c.id} comment={c} />
-          ))}
-          {filteredComments.length === 0 && (
-            <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-40">
-              <MessageSquare className="size-6 mb-1" />
-              <p className="text-xs">No comments yet</p>
+
+        {/* ---- Comments Tab ---- */}
+        {bottomTab === 'comments' && (
+          <>
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <div className="flex gap-1">
+                {['open', 'resolved', 'all'].map((f) => (
+                  <button
+                    key={f}
+                    className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
+                    onClick={() => setCommentFilter(f)}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+            <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">
+              {filteredComments.map((c) => (
+                <CommentCard key={c.id} comment={c} />
+              ))}
+              {filteredComments.length === 0 && (
+                <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-40">
+                  <MessageSquare className="size-6 mb-1" />
+                  <p className="text-xs">No comments yet</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ---- Action History Tab ---- */}
+        {bottomTab === 'history' && <ActionHistoryPanel />}
       </div>
 
       <SidebarContextMenu
@@ -198,6 +260,47 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
         onClose={() => setSidebarMenu(null)}
         onRename={handleRename}
       />
+
+      {/* Collaborator right-click context menu */}
+      {ctxMenu && (() => {
+        const targetUser = users.find((u) => u.id === ctxMenu.userId)
+        if (!targetUser) return null
+        const otherRoles = ROLES.filter((r) => r !== targetUser.role && r !== 'owner')
+        return (
+          <div
+            ref={ctxRef}
+            className="fixed z-100 bg-base-100 rounded-xl shadow-2xl border border-base-300 py-1 min-w-45"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <div className="px-3 py-2 border-b border-base-200">
+              <p className="text-xs font-semibold truncate">{targetUser.name}</p>
+              <p className="text-xs opacity-50">{ROLE_LABELS[targetUser.role]}</p>
+            </div>
+            {otherRoles.map((role) => {
+              const Icon = ROLE_ICON[role] || Shield
+              return (
+                <button
+                  key={role}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-base-200 flex items-center gap-2 transition-colors"
+                  onClick={() => { changeUserRole(ctxMenu.userId, role); setCtxMenu(null) }}
+                >
+                  <Icon className={`size-4 ${ROLE_COLOR[role]}`} />
+                  Set as {ROLE_LABELS[role]}
+                </button>
+              )
+            })}
+            <div className="border-t border-base-200 mt-1 pt-1">
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-error/10 text-error flex items-center gap-2 transition-colors"
+                onClick={() => { removeUser(ctxMenu.userId); setCtxMenu(null) }}
+              >
+                <X className="size-4" />
+                Remove
+              </button>
+            </div>
+          </div>
+        )
+      })()}
     </aside>
   )
 }

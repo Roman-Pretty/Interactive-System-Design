@@ -1,39 +1,35 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link, Undo2, Redo2 } from 'lucide-react'
+import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Send, Link, Undo2, Redo2, AtSign } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
+import MentionText from './MentionText'
+
+export function openShareModal() {
+  document.getElementById('share_modal')?.showModal()
+}
 
 function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
-  const { users, currentUser, setCurrentUser, nodes, unreadComments, markCommentRead, undo, redo, canUndo, canRedo } = useGraph()
+  const { users, currentUser, setCurrentUser, nodes, unreadComments, markCommentRead, undo, redo, canUndo, canRedo, ROLE_LABELS } = useGraph()
 
   // Share menu state
-  const [wholeEmail, setWholeEmail] = useState('')
-  const [levelEmail, setLevelEmail] = useState('')
-  const [wholeCopied, setWholeCopied] = useState(false)
-  const [levelCopied, setLevelCopied] = useState(false)
-  const [wholeSent, setWholeSent] = useState(false)
-  const [levelSent, setLevelSent] = useState(false)
-  const wholeCopiedTimer = useRef(null)
-  const levelCopiedTimer = useRef(null)
-  const wholeSentTimer = useRef(null)
-  const levelSentTimer = useRef(null)
+  const [shareTab, setShareTab] = useState('whole')
+  const [shareEmail, setShareEmail] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [sent, setSent] = useState(false)
+  const copiedTimer = useRef(null)
+  const sentTimer = useRef(null)
 
-  const handleCopy = (which) => {
-    const setter = which === 'whole' ? setWholeCopied : setLevelCopied
-    const timerRef = which === 'whole' ? wholeCopiedTimer : levelCopiedTimer
-    setter(true)
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setter(false), 1200)
+  const handleCopy = () => {
+    setCopied(true)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), 1200)
   }
 
-  const handleSend = (which) => {
-    const emailSetter = which === 'whole' ? setWholeEmail : setLevelEmail
-    const sentSetter = which === 'whole' ? setWholeSent : setLevelSent
-    const timerRef = which === 'whole' ? wholeSentTimer : levelSentTimer
-    emailSetter('')
-    sentSetter(true)
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => sentSetter(false), 1500)
+  const handleSend = () => {
+    setShareEmail('')
+    setSent(true)
+    clearTimeout(sentTimer.current)
+    sentTimer.current = setTimeout(() => setSent(false), 1500)
   }
 
   // Initialise theme from system preference on mount
@@ -87,16 +83,20 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
           </div>
         </div>
         <div className="navbar-end gap-2">
-          {/* ---- Share dropdown ---- */}
-          <div className="dropdown dropdown-end">
-            <div tabIndex={0} role="button" className="btn btn-outline btn-primary btn-sm">
-              <Share2 className="h-4 w-4" />
-              Share
-            </div>
-            <div
-              tabIndex={0}
-              className="dropdown-content bg-base-100/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-base-300 z-50 mt-3 w-96 p-5"
-            >
+          {/* ---- Share button ---- */}
+          <button className="btn btn-outline btn-primary btn-sm" onClick={openShareModal}>
+            <Share2 className="h-4 w-4" />
+            Share
+          </button>
+
+          {/* ---- Share Modal ---- */}
+          <dialog id="share_modal" className="modal modal-middle">
+            <div className="modal-box w-96">
+              {/* Close button */}
+              <form method="dialog">
+                <button className="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+              </form>
+
               {/* Header */}
               <div className="flex items-center gap-2.5 mb-4">
                 <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
@@ -105,100 +105,47 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                 <span className="text-sm font-semibold">Share</span>
               </div>
 
-              {/* Share whole project */}
-              <div className="bg-base-200/50 rounded-xl p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold leading-tight">Share whole project</p>
-                    <p className="text-xs opacity-50 mt-0.5">Collaborators will have access to all nodes</p>
-                  </div>
-                  <button
-                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100 shrink-0"
-                    onClick={() => handleCopy('whole')}
-                  >
-                    <AnimatePresence mode="wait">
-                      {wholeCopied ? (
-                        <motion.span key="copied" className="flex items-center gap-1 text-success" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                          <Check className="size-3" /> Copied!
-                        </motion.span>
-                      ) : (
-                        <motion.span key="copy" className="flex items-center gap-1" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                          <Link className="size-3" /> Copy Link
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </button>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <input
-                    type="email"
-                    placeholder="Enter Email"
-                    className="input input-sm flex-1 bg-base-100 border-base-300 focus:border-primary/50 focus:outline-none"
-                    value={wholeEmail}
-                    onChange={(e) => setWholeEmail(e.target.value)}
-                  />
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={!wholeEmail.trim()}
-                    onClick={() => handleSend('whole')}
-                  >
-                    <AnimatePresence mode="wait">
-                      {wholeSent ? (
-                        <motion.span key="sent" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-                          <Check className="size-3.5" />
-                        </motion.span>
-                      ) : (
-                        <motion.span key="send" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                          <Send className="size-3.5" />
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </button>
-                </div>
+              {/* Scope tabs */}
+              <div role="tablist" className="tabs tabs-box tabs-sm mb-4">
+                <button
+                  role="tab"
+                  className={`tab ${shareTab === 'whole' ? 'tab-active' : ''}`}
+                  onClick={() => setShareTab('whole')}
+                >
+                  Whole Project
+                </button>
+                <button
+                  role="tab"
+                  className={`tab ${shareTab === 'level' ? 'tab-active' : ''}`}
+                  onClick={() => setShareTab('level')}
+                >
+                  This Level
+                </button>
               </div>
 
-              {/* Divider */}
-              <div className="divider text-xs opacity-40 my-3">OR</div>
-
-              {/* Share from this level */}
+              {/* Shared form */}
               <div className="bg-base-200/50 rounded-xl p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold leading-tight">Share from this level</p>
-                    <p className="text-xs opacity-50 mt-0.5">Collaborators will have access to just this node and its children</p>
-                  </div>
-                  <button
-                    className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100 shrink-0"
-                    onClick={() => handleCopy('level')}
-                  >
-                    <AnimatePresence mode="wait">
-                      {levelCopied ? (
-                        <motion.span key="copied" className="flex items-center gap-1 text-success" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                          <Check className="size-3" /> Copied!
-                        </motion.span>
-                      ) : (
-                        <motion.span key="copy" className="flex items-center gap-1" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                          <Link className="size-3" /> Copy Link
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </button>
-                </div>
-                <div className="flex gap-2 mt-3">
+                <p className="text-xs opacity-50 mb-3">
+                  {shareTab === 'whole'
+                    ? 'Collaborators will have access to all nodes'
+                    : 'Collaborators will have access to just this node and its children'}
+                </p>
+
+                <div className="flex gap-2">
                   <input
                     type="email"
                     placeholder="Enter Email"
                     className="input input-sm flex-1 bg-base-100 border-base-300 focus:border-primary/50 focus:outline-none"
-                    value={levelEmail}
-                    onChange={(e) => setLevelEmail(e.target.value)}
+                    value={shareEmail}
+                    onChange={(e) => setShareEmail(e.target.value)}
                   />
                   <button
                     className="btn btn-primary btn-sm"
-                    disabled={!levelEmail.trim()}
-                    onClick={() => handleSend('level')}
+                    disabled={!shareEmail.trim()}
+                    onClick={handleSend}
                   >
                     <AnimatePresence mode="wait">
-                      {levelSent ? (
+                      {sent ? (
                         <motion.span key="sent" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
                           <Check className="size-3.5" />
                         </motion.span>
@@ -210,9 +157,31 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                     </AnimatePresence>
                   </button>
                 </div>
+
+                <div className="divider my-2 text-xs opacity-40">or</div>
+
+                <button
+                  className="btn btn-ghost btn-sm w-full gap-1.5 opacity-70 hover:opacity-100"
+                  onClick={handleCopy}
+                >
+                  <AnimatePresence mode="wait">
+                    {copied ? (
+                      <motion.span key="copied" className="flex items-center gap-1.5 text-success" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                        <Check className="size-3.5" /> Link Copied!
+                      </motion.span>
+                    ) : (
+                      <motion.span key="copy" className="flex items-center gap-1.5" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+                        <Link className="size-3.5" /> Copy Link
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </button>
               </div>
             </div>
-          </div>
+            <form method="dialog" className="modal-backdrop">
+              <button>close</button>
+            </form>
+          </dialog>
           <label className="btn btn-ghost btn-circle swap swap-rotate">
             <input type="checkbox" className="theme-controller" value="dark" />
             <Sun className="swap-off h-5 w-5" />
@@ -252,10 +221,16 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                     const latestReply = c.replies.length > 0 ? c.replies[c.replies.length - 1] : null
                     const displayAuthor = latestReply ? users.find((u) => u.id === latestReply.authorId) : author
                     const displayText = latestReply ? latestReply.text : c.text
+                    const isMentioned = c.mentions?.includes(currentUser.id) ||
+                      c.replies.some((r) => r.mentions?.includes(currentUser.id))
                     return (
                       <button
                         key={c.id}
-                        className="w-full text-left px-3 py-2.5 hover:bg-base-200 flex items-start gap-3 border-b border-base-200 last:border-0 cursor-pointer"
+                        className={`w-full text-left px-3 py-2.5 flex items-start gap-3 border-b border-base-200 last:border-0 cursor-pointer transition-colors ${
+                          isMentioned
+                            ? 'bg-amber-500/10 hover:bg-amber-500/15 border-l-[3px] border-l-warning'
+                            : 'hover:bg-base-200'
+                        }`}
                         onClick={() => {
                           markCommentRead(c.id)
                           if (onZoomToNode) onZoomToNode(c.nodeId)
@@ -269,16 +244,28 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1">
-                            <span className="text-sm font-semibold truncate">{displayAuthor?.name}</span>
+                            <span className={`text-sm truncate ${isMentioned ? 'font-bold' : 'font-semibold'}`}>{displayAuthor?.name}</span>
                             <span className="text-xs opacity-40">on</span>
                             <span className="text-xs font-medium text-primary truncate">{node?.name}</span>
                           </div>
-                          <p className="text-xs opacity-70 line-clamp-2 mt-0.5">{displayText}</p>
+                          {isMentioned && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <AtSign className="size-3 text-warning" />
+                              <span className="text-[11px] font-bold text-warning">Mentioned you</span>
+                            </div>
+                          )}
+                          <p className={`text-xs line-clamp-2 mt-0.5 ${isMentioned ? 'opacity-80 font-medium' : 'opacity-70'}`}>
+                            <MentionText text={displayText} />
+                          </p>
                           <span className="text-xs opacity-40 mt-0.5 block">
                             {new Date(latestReply?.createdAt || c.createdAt).toLocaleString()}
                           </span>
                         </div>
-                        <MessageSquare className="size-4 text-warning shrink-0 mt-1" />
+                        {isMentioned ? (
+                          <AtSign className="size-4 text-warning shrink-0 mt-1" />
+                        ) : (
+                          <MessageSquare className="size-4 text-warning shrink-0 mt-1" />
+                        )}
                       </button>
                     )
                   })
@@ -312,6 +299,7 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                       </div>
                     </div>
                     <span className="flex-1">{user.name}</span>
+                    {ROLE_LABELS && <span className="text-xs opacity-40">{ROLE_LABELS[user.role]}</span>}
                     {user.id === currentUser.id && <Check className="h-4 w-4 opacity-60" />}
                   </a>
                 </li>
