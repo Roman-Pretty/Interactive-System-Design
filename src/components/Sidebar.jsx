@@ -1,19 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, PanelLeftClose } from 'lucide-react'
+import { Search, Plus, PanelLeftClose, MessageSquare } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 import BreadcrumbNav from './BreadcrumbNav'
 import SidebarTreeNode from './SidebarTreeNode'
 import SidebarContextMenu from './SidebarContextMenu'
 import AddNodeForm from './AddNodeForm'
+import CommentCard from './CommentCard'
 
 function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, renameValue, setRenameValue }) {
-  const { nodes, currentParentId, breadcrumbs, navigateInto, addNode } = useGraph()
+  const { nodes, currentParentId, breadcrumbs, navigateInto, addNode, users, currentUser, comments } = useGraph()
 
   const [nodeSearch, setNodeSearch] = useState('')
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [expanded, setExpanded] = useState(new Set())
   const [sidebarMenu, setSidebarMenu] = useState(null)
+  const [commentFilter, setCommentFilter] = useState('open')
+
+  const filteredComments = comments.filter((c) => {
+    if (commentFilter === 'open') return !c.resolved
+    if (commentFilter === 'resolved') return c.resolved
+    return true
+  })
 
   // Close sidebar context menu on any window click
   useEffect(() => {
@@ -53,7 +61,7 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
   return (
     <aside className="relative w-1/5 bg-base-100 shadow-sm border-r border-base-300 p-4 flex flex-col min-h-0">
       <button
-        className="btn btn-ghost btn-circle btn-sm absolute top-2 right-2 z-10"
+        className="btn btn-ghost btn-circle btn-sm absolute top-4 right-2 z-10"
         onClick={onClose}
         title="Collapse sidebar"
       >
@@ -89,7 +97,7 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
         onRootClick={handleRootClick}
       />
 
-      <div className="flex flex-col w-full overflow-y-auto flex-1 min-h-0">
+      <div className="flex flex-col w-full overflow-y-auto min-h-0" style={{ maxHeight: '40%' }}>
         {rootNodes.map((node) => (
           <SidebarTreeNode
             key={node.id}
@@ -129,6 +137,61 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
           New node...
         </button>
       )}
+
+      {/* ---- Divider ---- */}
+      <div className="border-t border-base-300 my-3 shrink-0" />
+
+      {/* ---- Collaborators ---- */}
+      <div className="shrink-0 mb-1">
+        <div className="breadcrumbs text-sm mb-1"><ul><li>Collaborators</li></ul></div>
+        <div className="flex flex-col w-full">
+          {users.filter((u) => u.id !== currentUser.id).map((u) => (
+            <div
+              key={u.id}
+              className="flex items-center gap-2 py-1 px-1 rounded-md hover:bg-base-200 cursor-default"
+            >
+              <div className="avatar online placeholder">
+                <div className="w-5 rounded-full">
+                  <img src={u.avatar} alt={u.name} />
+                </div>
+              </div>
+              <span className="text-sm truncate">{u.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- Divider ---- */}
+      <div className="border-t border-base-300 my-3 shrink-0" />
+
+      {/* ---- Comments ---- */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex items-center justify-between mb-2 shrink-0">
+          <div className="breadcrumbs text-sm"><ul><li>Comments</li></ul></div>
+          <div className="flex gap-1">
+            {['open', 'resolved', 'all'].map((f) => (
+              <button
+                key={f}
+                className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
+                onClick={() => setCommentFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">
+          {filteredComments.map((c) => (
+            <CommentCard key={c.id} comment={c} />
+          ))}
+          {filteredComments.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-40">
+              <MessageSquare className="size-6 mb-1" />
+              <p className="text-xs">No comments yet</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       <SidebarContextMenu
         menu={sidebarMenu}

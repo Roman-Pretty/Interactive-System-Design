@@ -15,11 +15,12 @@ function SidebarTreeNode({
   renameValue,
   setRenameValue,
 }) {
-  const { nodes, currentParentId, navigateInto, getChildCount, renameNode, deleteNode } = useGraph()
+  const { nodes, currentParentId, navigateInto, getChildCount, renameNode, deleteNode, selectedNodeIds, selectNode, toggleSelectNode } = useGraph()
 
   const childCount = getChildCount(node.id)
   const isExpanded = expanded.has(node.id)
   const isCurrentLevel = node.id === currentParentId
+  const isSelected = selectedNodeIds.has(node.id)
   const children = childCount > 0 && isExpanded
     ? nodes.filter((n) => n.parentId === node.id)
     : []
@@ -34,7 +35,7 @@ function SidebarTreeNode({
   return (
     <div>
       <div
-        className={`group flex items-center gap-1 py-1 px-1 rounded-md hover:bg-base-200 cursor-pointer ${isCurrentLevel ? 'bg-base-200 font-semibold' : ''}`}
+        className={`group flex items-center gap-1 py-1 px-1 rounded-md hover:bg-base-200 cursor-pointer ${isCurrentLevel ? 'bg-base-200 font-semibold' : ''} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-500/10' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 4}px` }}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -88,7 +89,11 @@ function SidebarTreeNode({
         ) : (
           <span
             className="text-sm truncate flex-1"
-            onClick={() => navigateInto(node.id)}
+            onClick={(e) => {
+              if (e.ctrlKey || e.metaKey) toggleSelectNode(node.id)
+              else selectNode(node.id)
+            }}
+            onDoubleClick={() => navigateInto(node.id)}
             title={node.name}
           >
             {node.name}

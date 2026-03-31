@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   loadDB,
   saveDB,
@@ -13,16 +13,31 @@ import {
   addComment as storeAddComment,
   addReply as storeAddReply,
   resolveComment as storeResolveComment,
+  unresolveComment as storeUnresolveComment,
   markCommentRead as storeMarkCommentRead,
   deleteComment as storeDeleteComment,
+  deleteReply as storeDeleteReply,
   resetDB,
 } from '../data/store'
 
 const GraphContext = createContext(null)
 
+const MAX_UNDO = 50
+
 export function GraphProvider({ children }) {
   const [db, setDb] = useState(() => loadDB())
   const [currentParentId, setCurrentParentId] = useState(null) // null = root level
+  const [undoStack, setUndoStack] = useState([])
+  const [redoStack, setRedoStack] = useState([])
+  const [selectedNodeIds, setSelectedNodeIds] = useState(new Set())
+
+  const pushUndo = useCallback((snapshot) => {
+    setUndoStack((prev) => {
+      const next = [...prev, snapshot]
+      return next.length > MAX_UNDO ? next.slice(next.length - MAX_UNDO) : next
+    })
+    setRedoStack([])
+  }, [])
 
   const refresh = useCallback((updater) => {
     setDb((prev) => {
@@ -34,25 +49,28 @@ export function GraphProvider({ children }) {
   }, [])
 
   const addNode = useCallback((name, color, parentId = null) => {
+    pushUndo(structuredClone(db))
     let node
     refresh((d) => {
       node = storeAddNode(d, name, color, parentId)
     })
     return node
-  }, [refresh])
+  }, [refresh, db, pushUndo])
 
   const renameNode = useCallback((nodeId, newName) => {
+    pushUndo(structuredClone(db))
     refresh((d) => storeRenameNode(d, nodeId, newName))
-  }, [refresh])
+  }, [refresh, db, pushUndo])
 
   const deleteNode = useCallback((nodeId) => {
+    pushUndo(structuredClone(db))
     // If we're inside the node being deleted, navigate up
     if (nodeId === currentParentId) {
       const parent = db.nodes.find((n) => n.id === nodeId)
       setCurrentParentId(parent?.parentId || null)
     }
     refresh((d) => storeDeleteNode(d, nodeId))
-  }, [refresh, currentParentId, db.nodes])
+  }, [refresh, currentParentId, db, pushUndo])
 
   const addEdge = useCallback((sourceId, targetId) => {
     let edge
@@ -70,14 +88,38 @@ export function GraphProvider({ children }) {
     refresh((d) => storeSetCurrentUser(d, userId))
   }, [refresh])
 
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return
+    const prev = undoStack[undoStack.length - 1]
+    setUndoStack((s) => s.slice(0, -1))
+    setRedoStack((s) => [...s, structuredClone(db)])
+    saveDB(prev)
+    setDb(prev)
+  }, [undoStack, db])
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return
+    const next = redoStack[redoStack.length - 1]
+    setRedoStack((s) => s.slice(0, -1))
+    setUndoStack((s) => [...s, structuredClone(db)])
+    saveDB(next)
+    setDb(next)
+  }, [redoStack, db])
+
+  const canUndo = undoStack.length > 0
+  const canRedo = redoStack.length > 0
+
   const reset = useCallback(() => {
     setDb(resetDB())
     setCurrentParentId(null)
+    setUndoStack([])
+    setRedoStack([])
   }, [])
 
   // Navigate into a node to see its children (null = root)
   const navigateInto = useCallback((nodeId) => {
     setCurrentParentId(nodeId || null)
+    setSelectedNodeIds(new Set())
   }, [])
 
   // Navigate up to parent
@@ -85,7 +127,26 @@ export function GraphProvider({ children }) {
     if (!currentParentId) return
     const current = db.nodes.find((n) => n.id === currentParentId)
     setCurrentParentId(current?.parentId || null)
+    setSelectedNodeIds(new Set())
   }, [currentParentId, db.nodes])
+
+  // Selection: single select (replace), toggle (Ctrl+click), clear
+  const selectNode = useCallback((nodeId) => {
+    setSelectedNodeIds(new Set([nodeId]))
+  }, [])
+
+  const toggleSelectNode = useCallback((nodeId) => {
+    setSelectedNodeIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) next.delete(nodeId)
+      else next.add(nodeId)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedNodeIds(new Set())
+  }, [])
 
   const currentUser = db.users.find((u) => u.id === db.currentUserId) || db.users[0]
 
@@ -127,9 +188,38 @@ export function GraphProvider({ children }) {
     return reply
   }, [refresh])
 
+  const lastResolvedRef = useRef(null)
+
   const resolveComment = useCallback((commentId) => {
     refresh((d) => storeResolveComment(d, commentId))
+    lastResolvedRef.current = commentId
   }, [refresh])
+
+  const unresolveComment = useCallback((commentId) => {
+    refresh((d) => storeUnresolveComment(d, commentId))
+    if (lastResolvedRef.current === commentId) lastResolvedRef.current = null
+  }, [refresh])
+
+  const undoLastResolve = useCallback(() => {
+    if (lastResolvedRef.current) {
+      unresolveComment(lastResolvedRef.current)
+    }
+  }, [unresolveComment])
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [undo, redo])
 
   const markCommentRead = useCallback((commentId) => {
     refresh((d) => storeMarkCommentRead(d, commentId, d.currentUserId))
@@ -137,6 +227,10 @@ export function GraphProvider({ children }) {
 
   const removeComment = useCallback((commentId) => {
     refresh((d) => storeDeleteComment(d, commentId))
+  }, [refresh])
+
+  const removeReply = useCallback((commentId, replyId) => {
+    refresh((d) => storeDeleteReply(d, commentId, replyId))
   }, [refresh])
 
   const comments = db.comments || []
@@ -165,14 +259,24 @@ export function GraphProvider({ children }) {
         navigateInto,
         navigateUp,
         getChildCount,
+        selectedNodeIds,
+        selectNode,
+        toggleSelectNode,
+        clearSelection,
         comments,
         unreadComments,
         addComment,
         addReply,
         resolveComment,
+        unresolveComment,
         markCommentRead,
         removeComment,
+        removeReply,
         reset,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
       }}
     >
       {children}

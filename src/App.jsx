@@ -2,7 +2,6 @@ import { useState, useRef, useCallback } from 'react'
 import Navbar from './components/Navbar'
 import Sidebar from './components/Sidebar'
 import GraphCanvas from './components/GraphCanvas'
-import CollaborationPanel from './components/CollaborationPanel'
 import { useGraph } from './context/GraphContext'
 import { useThemeDetection } from './hooks/useThemeDetection'
 
@@ -17,6 +16,10 @@ function App() {
   const [renamingNodeId, setRenamingNodeId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
 
+  // Highlighted node (set by notification bell click)
+  const [highlightedNodeId, setHighlightedNodeId] = useState(null)
+  const highlightTimerRef = useRef(null)
+
   // Zoom to a specific node (used by notifications)
   const zoomToNode = useCallback((nodeId) => {
     if (!graphRef.current) return
@@ -27,6 +30,11 @@ function App() {
         navigateInto(parentId)
       }
     }
+    // Set highlight immediately
+    setHighlightedNodeId(nodeId)
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    highlightTimerRef.current = setTimeout(() => setHighlightedNodeId(null), 4000)
+
     setTimeout(() => {
       const data = graphRef.current?.graphData()
       const gNode = data?.nodes.find((n) => n.id === nodeId)
@@ -59,8 +67,9 @@ function App() {
           graphRef={graphRef}
           isDark={isDark}
           onStartRename={handleStartRename}
+          highlightedNodeId={highlightedNodeId}
+          onClearHighlight={() => setHighlightedNodeId(null)}
         />
-        <CollaborationPanel />
       </div>
     </div>
   )

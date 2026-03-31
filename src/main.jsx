@@ -4,6 +4,10 @@ import './index.css'
 import App from './App.jsx'
 import { GraphProvider } from './context/GraphContext'
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/Interactive-System-Design/sw.js');
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <GraphProvider>

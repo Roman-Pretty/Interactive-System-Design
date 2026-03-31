@@ -10,11 +10,12 @@ import ContextAddNodeForm from './ContextAddNodeForm'
 import CommentFormPopover from './CommentFormPopover'
 import CommentTooltip from './CommentTooltip'
 
-function GraphCanvas({ graphRef, isDark, onStartRename }) {
+function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onClearHighlight }) {
   const {
     visibleNodes, edges, comments,
     currentParentId, navigateInto, navigateUp,
     addEdge,
+    selectedNodeIds, selectNode, toggleSelectNode, clearSelection,
   } = useGraph()
 
   const containerRef = useRef()
@@ -46,6 +47,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
   const handleHoveredRef = useRef(false)
   const handleHideTimeoutRef = useRef(null)
   const graphNodeHoverRef = useRef(null)
+  const lastClickRef = useRef({ nodeId: null, time: 0 })
   hoveredNodeIdRef.current = hoveredNodeId
   dragEdgeRef.current = dragEdge
   pinnedTooltipRef.current = pinnedTooltipNodeId
@@ -95,17 +97,18 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
     return () => window.removeEventListener('click', close)
   }, [])
 
-  // Escape key cancels edge drag or context form
+  // Escape key cancels edge drag, context form, or clears selection
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (dragEdge) { setDragEdge(null); setDragMousePos(null) }
-        if (ctxAddForm) setCtxAddForm(null)
+        else if (ctxAddForm) setCtxAddForm(null)
+        else clearSelection()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [dragEdge, ctxAddForm])
+  }, [dragEdge, ctxAddForm, clearSelection])
 
   // Track handle overlay screen positions via requestAnimationFrame
   useEffect(() => {
@@ -186,6 +189,31 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
     return () => { if (canvas) canvas.style.cursor = '' }
   }, [dragEdge])
 
+  // Animate highlight ring — throttled state tick drives canvas repaints
+  const [highlightTick, setHighlightTick] = useState(0)
+  useEffect(() => {
+    if (!highlightedNodeId) return
+    const id = setInterval(() => setHighlightTick((t) => t + 1), 50)
+    return () => clearInterval(id)
+  }, [highlightedNodeId])
+
+  // Auto-open comment tooltip when a node is highlighted from notification
+  useEffect(() => {
+    if (!highlightedNodeId || !graphRef.current) return
+    const openTooltip = () => {
+      const data = graphRef.current?.graphData()
+      const gNode = data?.nodes.find((n) => n.id === highlightedNodeId)
+      if (gNode && gNode.x !== undefined) {
+        const sp = graphRef.current.graph2ScreenCoords(gNode.x, gNode.y)
+        setPinnedTooltipNodeId(highlightedNodeId)
+        setCommentTooltipPos({ x: sp.x + 24, y: sp.y - 12 })
+      }
+    }
+    // Delay to allow zoom/center animation to settle
+    const timer = setTimeout(openTooltip, 750)
+    return () => clearTimeout(timer)
+  }, [highlightedNodeId, graphRef])
+
   // Node comment counts for badge rendering
   const nodeCommentCounts = useMemo(() => {
     const map = {}
@@ -198,10 +226,37 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
   // Node canvas rendering with Figma-style handles
   const nodeCanvasObject = useCallback((node, ctx) => {
     const radius = 20
+    // Pulsing highlight ring from notification
+    if (highlightedNodeId === node.id) {
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300)
+      const outerR = radius + 8 + pulse * 4
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, outerR, 0, 2 * Math.PI)
+      ctx.strokeStyle = `rgba(59, 130, 246, ${0.3 + pulse * 0.4})`
+      ctx.lineWidth = 3
+      ctx.stroke()
+
+      const innerR = radius + 3
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, innerR, 0, 2 * Math.PI)
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2.5
+      ctx.stroke()
+    }
+
     ctx.beginPath()
     ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI)
     ctx.fillStyle = node.color
     ctx.fill()
+
+    // Selection ring
+    if (selectedNodeIds.has(node.id)) {
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, radius + 4, 0, 2 * Math.PI)
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2.5
+      ctx.stroke()
+    }
 
     // Blue ring when dragging TO this node
     if (dragEdge && dragEdge.sourceId !== node.id && hoveredNodeId === node.id) {
@@ -270,7 +325,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
         ctx.stroke()
       })
     }
-  }, [contentColor, hoveredNodeId, dragEdge, nodeCommentCounts])
+  }, [contentColor, hoveredNodeId, dragEdge, nodeCommentCounts, highlightedNodeId, highlightTick, selectedNodeIds])
 
   // --- Handlers ---
   const handleBackgroundRightClick = useCallback((event) => {
@@ -333,8 +388,9 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
     }
   }, [])
 
-  const handleNodeClick = useCallback((node) => {
+  const handleNodeClick = useCallback((node, event) => {
     if (dragCompletedRef.current) return
+    if (highlightedNodeId) onClearHighlight()
     if (dragEdge) {
       if (node.id !== dragEdge.sourceId) {
         addEdge(dragEdge.sourceId, node.id)
@@ -343,15 +399,32 @@ function GraphCanvas({ graphRef, isDark, onStartRename }) {
       setDragMousePos(null)
       return
     }
-    navigateInto(node.id)
-  }, [dragEdge, addEdge, navigateInto])
+
+    const now = Date.now()
+    const last = lastClickRef.current
+    if (last.nodeId === node.id && now - last.time < 350) {
+      // Double-click: navigate into
+      lastClickRef.current = { nodeId: null, time: 0 }
+      navigateInto(node.id)
+    } else {
+      // Single click: select / toggle-select
+      lastClickRef.current = { nodeId: node.id, time: now }
+      if (event.ctrlKey || event.metaKey) {
+        toggleSelectNode(node.id)
+      } else {
+        selectNode(node.id)
+      }
+    }
+  }, [dragEdge, addEdge, navigateInto, selectNode, toggleSelectNode, highlightedNodeId, onClearHighlight])
 
   const handleBackgroundClick = useCallback(() => {
+    if (highlightedNodeId) onClearHighlight()
+    clearSelection()
     if (dragEdge) {
       setDragEdge(null)
       setDragMousePos(null)
     }
-  }, [dragEdge])
+  }, [dragEdge, highlightedNodeId, onClearHighlight])
 
   // Handle overlay interaction callbacks
   const handleHandleMouseEnter = useCallback(() => {

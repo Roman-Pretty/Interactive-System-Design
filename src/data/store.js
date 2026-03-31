@@ -183,6 +183,11 @@ export function resolveComment(db, commentId) {
   if (comment) comment.resolved = true
 }
 
+export function unresolveComment(db, commentId) {
+  const comment = db.comments.find((c) => c.id === commentId)
+  if (comment) comment.resolved = false
+}
+
 export function markCommentRead(db, commentId, userId) {
   const comment = db.comments.find((c) => c.id === commentId)
   if (comment && !comment.readBy.includes(userId)) {
@@ -192,6 +197,13 @@ export function markCommentRead(db, commentId, userId) {
 
 export function deleteComment(db, commentId) {
   db.comments = db.comments.filter((c) => c.id !== commentId)
+}
+
+export function deleteReply(db, commentId, replyId) {
+  const comment = db.comments.find((c) => c.id === commentId)
+  if (comment) {
+    comment.replies = comment.replies.filter((r) => r.id !== replyId)
+  }
 }
 
 export { AVAILABLE_COLORS, COLOR_MAP }

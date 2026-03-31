@@ -1,12 +1,54 @@
-import { useState } from 'react'
-import { MessageSquare, CheckCircle2, Reply, Send } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { MessageSquare, CheckCircle2, Reply, Send, Trash2 } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 
+const UNDO_TIMEOUT = 5000
+
 function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) {
-  const { users, addReply, resolveComment } = useGraph()
+  const { users, addReply, resolveComment, unresolveComment, removeComment } = useGraph()
 
   const [replyingTo, setReplyingTo] = useState(null)
   const [replyText, setReplyText] = useState('')
+  const [pendingActions, setPendingActions] = useState({}) // { [commentId]: 'resolved' | 'deleted' }
+  const timersRef = useRef({})
+
+  const clearTimer = useCallback((id) => {
+    if (timersRef.current[id]) {
+      clearTimeout(timersRef.current[id])
+      delete timersRef.current[id]
+    }
+  }, [])
+
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => Object.values(timers).forEach(clearTimeout)
+  }, [])
+
+  const handleResolve = (commentId) => {
+    resolveComment(commentId)
+    setPendingActions((p) => ({ ...p, [commentId]: 'resolved' }))
+    clearTimer(commentId)
+    timersRef.current[commentId] = setTimeout(() => {
+      setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
+    }, UNDO_TIMEOUT)
+  }
+
+  const handleDelete = (commentId) => {
+    setPendingActions((p) => ({ ...p, [commentId]: 'deleted' }))
+    clearTimer(commentId)
+    timersRef.current[commentId] = setTimeout(() => {
+      removeComment(commentId)
+      setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
+    }, UNDO_TIMEOUT)
+  }
+
+  const handleUndo = (commentId) => {
+    clearTimer(commentId)
+    if (pendingActions[commentId] === 'resolved') {
+      unresolveComment(commentId)
+    }
+    setPendingActions((p) => { const next = { ...p }; delete next[commentId]; return next })
+  }
 
   const handleMouseLeave = () => {
     setReplyingTo(null)
@@ -34,6 +76,20 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
         </div>
         <div className="flex flex-col gap-3">
           {nodeComments.map((c) => {
+            const pending = pendingActions[c.id]
+            if (pending) {
+              const label = pending === 'resolved' ? 'Comment resolved.' : 'Comment deleted.'
+              return (
+                <div key={c.id} className="rounded-xl border-2 border-dashed border-base-300 p-4 flex items-center justify-center">
+                  <p className="text-xs opacity-60">
+                    {label}{' '}
+                    <button className="underline hover:opacity-100 cursor-pointer" onClick={() => handleUndo(c.id)}>
+                      Undo
+                    </button>
+                  </p>
+                </div>
+              )
+            }
             const author = users.find((u) => u.id === c.authorId)
             return (
               <div key={c.id} className="bg-base-200/60 rounded-xl p-3">
@@ -45,6 +101,13 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
                   </div>
                   <span className="text-xs font-semibold">{author?.name}</span>
                   <span className="text-[10px] opacity-40 ml-auto">{new Date(c.createdAt).toLocaleDateString()}</span>
+                  <button
+                    className="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100 ml-1"
+                    onClick={() => handleDelete(c.id)}
+                    title="Delete comment"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
                 </div>
                 <p className="text-xs leading-relaxed ml-7">{c.text}</p>
                 {c.replies.length > 0 && (
@@ -94,7 +157,7 @@ function CommentTooltip({ position, nodeComments, onMouseEnter, onMouseLeave }) 
                   <div className="flex justify-end gap-1.5 mt-2">
                     <button
                       className="btn btn-ghost btn-xs gap-1 opacity-60 hover:opacity-100"
-                      onClick={() => resolveComment(c.id)}
+                      onClick={() => handleResolve(c.id)}
                     >
                       <CheckCircle2 className="size-3" /> Resolve
                     </button>

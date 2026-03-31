@@ -1,0 +1,23 @@
+{
+  "name": "Amytis",
+  "short_name": "Amytis",
+  "start_url": "/Interactive-System-Design/",
+  "scope": "/Interactive-System-Design/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

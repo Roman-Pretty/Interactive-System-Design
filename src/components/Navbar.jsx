@@ -1,10 +1,10 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link } from 'lucide-react'
+import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Eye, Send, Link, Undo2, Redo2 } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 
 function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
-  const { users, currentUser, setCurrentUser, nodes, comments, unreadComments, markCommentRead } = useGraph()
+  const { users, currentUser, setCurrentUser, nodes, unreadComments, markCommentRead, undo, redo, canUndo, canRedo } = useGraph()
 
   // Share menu state
   const [wholeEmail, setWholeEmail] = useState('')
@@ -36,10 +36,20 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
     timerRef.current = setTimeout(() => sentSetter(false), 1500)
   }
 
+  // Initialise theme from system preference on mount
+  useEffect(() => {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const checkbox = document.querySelector('.theme-controller')
+    if (checkbox && prefersDark && !checkbox.checked) {
+      checkbox.checked = true
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+  }, [])
+
   return (
     <header>
       <div className="navbar bg-base-100 border-b border-base-300">
-        <div className="navbar-start">
+        <div className="navbar-start gap-1">
           <AnimatePresence>
             {!sidebarOpen && (
               <motion.button
@@ -55,6 +65,26 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
               </motion.button>
             )}
           </AnimatePresence>
+          <div className="tooltip tooltip-bottom" data-tip="Undo (Ctrl+Z)">
+            <button
+              className="btn btn-ghost btn-sm btn-square"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="tooltip tooltip-bottom" data-tip="Redo (Ctrl+Y)">
+            <button
+              className="btn btn-ghost btn-sm btn-square"
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="navbar-end gap-2">
           {/* ---- Share dropdown ---- */}
@@ -196,7 +226,7 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
                 <Bell className="h-5 w-5" />
                 {unreadComments.length > 0 && (
                   <motion.span
-                    className="badge badge-primary indicator-item h-4 min-w-4 p-0 text-[10px]"
+                    className="badge badge-primary indicator-item h-4 min-w-4 px-1 text-[10px] leading-none"
                     animate={{ scale: [1, 1.15, 1], opacity: [1, 0.8, 1] }}
                     transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                   >
