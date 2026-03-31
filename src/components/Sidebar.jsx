@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, PanelLeftClose, MessageSquare, History, Shield, ShieldCheck, Crown, X } from 'lucide-react'
+import { Search, Plus, PanelLeftClose, MessageSquare, Shield, ShieldCheck, Crown, X } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 import { openShareModal } from './Navbar'
 
@@ -19,7 +19,6 @@ import SidebarTreeNode from './SidebarTreeNode'
 import SidebarContextMenu from './SidebarContextMenu'
 import AddNodeForm from './AddNodeForm'
 import CommentCard from './CommentCard'
-import ActionHistoryPanel from './ActionHistoryPanel'
 
 function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, renameValue, setRenameValue }) {
   const { nodes, currentParentId, breadcrumbs, navigateInto, addNode, users, currentUser, comments, ROLE_LABELS, isOwner, changeUserRole, removeUser, ROLES } = useGraph()
@@ -30,7 +29,6 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
   const [expanded, setExpanded] = useState(new Set())
   const [sidebarMenu, setSidebarMenu] = useState(null)
   const [commentFilter, setCommentFilter] = useState('open')
-  const [bottomTab, setBottomTab] = useState('comments')
   const [ctxMenu, setCtxMenu] = useState(null)
   const ctxRef = useRef(null)
 
@@ -204,55 +202,35 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
       {/* ---- Divider ---- */}
       <div className="border-t border-base-300 my-3 shrink-0" />
 
-      {/* ---- Tab Switcher ---- */}
+      {/* ---- Comments Section ---- */}
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex gap-1 mb-2 shrink-0">
-          <button
-            className={`btn btn-ghost btn-xs gap-1 ${bottomTab === 'comments' ? 'btn-active' : ''}`}
-            onClick={() => setBottomTab('comments')}
-          >
-            <MessageSquare className="size-3.5" /> Comments
-          </button>
-          <button
-            className={`btn btn-ghost btn-xs gap-1 ${bottomTab === 'history' ? 'btn-active' : ''}`}
-            onClick={() => setBottomTab('history')}
-          >
-            <History className="size-3.5" /> History
-          </button>
+        <div className="flex items-center justify-between mb-1 shrink-0">
+          <div className="breadcrumbs text-sm"><ul><li>Comments</li></ul></div>
         </div>
-
-        {/* ---- Comments Tab ---- */}
-        {bottomTab === 'comments' && (
-          <>
-            <div className="flex items-center justify-between mb-2 shrink-0">
-              <div className="flex gap-1">
-                {['open', 'resolved', 'all'].map((f) => (
-                  <button
-                    key={f}
-                    className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
-                    onClick={() => setCommentFilter(f)}
-                  >
-                    {f.charAt(0).toUpperCase() + f.slice(1)}
-                  </button>
-                ))}
-              </div>
+        <div className="flex items-center justify-between mb-2 shrink-0">
+          <div className="flex gap-1">
+            {['open', 'resolved', 'all'].map((f) => (
+              <button
+                key={f}
+                className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
+                onClick={() => setCommentFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">
+          {filteredComments.map((c) => (
+            <CommentCard key={c.id} comment={c} />
+          ))}
+          {filteredComments.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-40">
+              <MessageSquare className="size-6 mb-1" />
+              <p className="text-xs">No comments yet</p>
             </div>
-            <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">
-              {filteredComments.map((c) => (
-                <CommentCard key={c.id} comment={c} />
-              ))}
-              {filteredComments.length === 0 && (
-                <div className="flex-1 flex flex-col items-center justify-center py-6 opacity-40">
-                  <MessageSquare className="size-6 mb-1" />
-                  <p className="text-xs">No comments yet</p>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* ---- Action History Tab ---- */}
-        {bottomTab === 'history' && <ActionHistoryPanel />}
+          )}
+        </div>
       </div>
 
       <SidebarContextMenu
