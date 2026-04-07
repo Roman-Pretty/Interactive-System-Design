@@ -7,12 +7,13 @@ import MentionTextarea from './MentionTextarea'
 const UNDO_TIMEOUT = 5000
 
 function CommentItem({ comment, compact = false }) {
-  const { users, nodes, currentUser, addReply, resolveComment, unresolveComment, removeComment, removeReply } = useGraph()
+  const { users, nodes, currentUser, addReply, resolveComment, unresolveComment, removeComment, removeReply, markPendingResolve, clearPendingResolve } = useGraph()
 
   const [replyingTo, setReplyingTo] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [pendingAction, setPendingAction] = useState(null)
   const timerRef = useRef(null)
+  const pendingActionRef = useRef(null)
 
   const author = users.find((u) => u.id === comment.authorId)
   const nodeName = nodes.find((n) => n.id === comment.nodeId)?.name || 'Unknown'
@@ -24,29 +25,48 @@ function CommentItem({ comment, compact = false }) {
     }
   }, [])
 
-  useEffect(() => () => clearTimer(), [clearTimer])
+  useEffect(() => () => {
+    clearTimer()
+    if (pendingActionRef.current === 'resolved') {
+      resolveComment(comment.id)
+      clearPendingResolve(comment.id)
+    }
+    if (pendingActionRef.current === 'deleted') {
+      removeComment(comment.id)
+    }
+  }, [clearTimer, comment.id, resolveComment, clearPendingResolve, removeComment])
 
   const handleResolve = () => {
+    markPendingResolve(comment.id)
     setPendingAction('resolved')
+    pendingActionRef.current = 'resolved'
     clearTimer()
     timerRef.current = setTimeout(() => {
       resolveComment(comment.id)
+      clearPendingResolve(comment.id)
       setPendingAction(null)
+      pendingActionRef.current = null
     }, UNDO_TIMEOUT)
   }
 
   const handleDelete = () => {
     setPendingAction('deleted')
+    pendingActionRef.current = 'deleted'
     clearTimer()
     timerRef.current = setTimeout(() => {
       removeComment(comment.id)
       setPendingAction(null)
+      pendingActionRef.current = null
     }, UNDO_TIMEOUT)
   }
 
   const handleUndo = () => {
     clearTimer()
+    if (pendingAction === 'resolved') {
+      clearPendingResolve(comment.id)
+    }
     setPendingAction(null)
+    pendingActionRef.current = null
   }
 
   const submitReply = () => {

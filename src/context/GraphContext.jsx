@@ -35,6 +35,15 @@ export function GraphProvider({ children }) {
   const [undoStack, setUndoStack] = useState([])
   const [redoStack, setRedoStack] = useState([])
   const [selectedNodeIds, setSelectedNodeIds] = useState(new Set())
+  const [pendingResolveIds, setPendingResolveIds] = useState(new Set())
+
+  const markPendingResolve = useCallback((commentId) => {
+    setPendingResolveIds(prev => { const next = new Set(prev); next.add(commentId); return next })
+  }, [])
+
+  const clearPendingResolve = useCallback((commentId) => {
+    setPendingResolveIds(prev => { const next = new Set(prev); next.delete(commentId); return next })
+  }, [])
 
   const pushUndo = useCallback((snapshot) => {
     setUndoStack((prev) => {
@@ -337,6 +346,9 @@ export function GraphProvider({ children }) {
         markCommentRead,
         removeComment,
         removeReply,
+        pendingResolveIds,
+        markPendingResolve,
+        clearPendingResolve,
         changeUserRole,
         removeUser,
         isOwner,

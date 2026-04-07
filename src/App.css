@@ -3,5 +3,6 @@
 
 .force-graph-container canvas {
   background: transparent !important;
+  cursor: inherit !important;
 }
 
