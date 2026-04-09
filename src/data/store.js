@@ -190,13 +190,14 @@ export function extractMentions(text, users) {
 
 // ---- Comment operations ----
 
-export function addComment(db, nodeId, authorId, text) {
+export function addComment(db, nodeId, authorId, text, tag = null) {
   const mentions = extractMentions(text, db.users)
   const comment = {
     id: generateId(),
     nodeId,
     authorId,
     text,
+    tag,
     createdAt: Date.now(),
     resolved: false,
     readBy: [authorId],

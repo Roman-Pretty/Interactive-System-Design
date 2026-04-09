@@ -1,19 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Send, Link, Undo2, Redo2, AtSign, History } from 'lucide-react'
+import { PanelLeftOpen, Share2, Sun, Moon, Bell, Check, MessageSquare, Send, Link, Undo2, Redo2, AtSign } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 import MentionText from './MentionText'
-import ActionHistoryPanel from './ActionHistoryPanel'
 
 export function openShareModal() {
   document.getElementById('share_modal')?.showModal()
 }
 
-function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
+function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar, isDark }) {
+  const toggleTheme = () =>
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark')
   const { users, currentUser, setCurrentUser, nodes, unreadComments, markCommentRead, undo, redo, canUndo, canRedo, ROLE_LABELS } = useGraph()
-
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const historyRef = useRef(null)
 
   // Share menu state
   const [shareTab, setShareTab] = useState('whole')
@@ -36,25 +34,7 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
     sentTimer.current = setTimeout(() => setSent(false), 1500)
   }
 
-  // Close history dropdown on outside click (capture phase so canvas stopPropagation doesn't block it)
-  useEffect(() => {
-    if (!historyOpen) return
-    const handler = (e) => {
-      if (historyRef.current && !historyRef.current.contains(e.target)) setHistoryOpen(false)
-    }
-    document.addEventListener('pointerdown', handler, true)
-    return () => document.removeEventListener('pointerdown', handler, true)
-  }, [historyOpen])
 
-  // Initialise theme from system preference on mount
-  useEffect(() => {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    const checkbox = document.querySelector('.theme-controller')
-    if (checkbox && prefersDark && !checkbox.checked) {
-      checkbox.checked = true
-      checkbox.dispatchEvent(new Event('change', { bubbles: true }))
-    }
-  }, [])
 
   return (
     <header>
@@ -82,7 +62,7 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
               disabled={!canUndo}
               title="Undo (Ctrl+Z)"
             >
-              <Undo2 className="h-5 w-5" />
+              <Undo2 className="h-4 w-4" />
             </button>
           </div>
           <div className="tooltip tooltip-bottom" data-tip="Redo (Ctrl+Y)">
@@ -92,27 +72,8 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
               disabled={!canRedo}
               title="Redo (Ctrl+Y)"
             >
-              <Redo2 className="h-5 w-5" />
+              <Redo2 className="h-4 w-4" />
             </button>
-          </div>
-          <div className="relative" ref={historyRef}>
-            <div className="tooltip tooltip-bottom" data-tip="History">
-              <button
-                className={`btn btn-ghost btn-sm btn-square ${historyOpen ? 'btn-active' : ''}`}
-                onClick={() => setHistoryOpen((v) => !v)}
-                title="History"
-              >
-                <History className="h-5 w-5" />
-              </button>
-            </div>
-            {historyOpen && (
-              <div className="absolute top-full left-0 mt-1 w-72 max-h-80 bg-base-100 rounded-xl shadow-2xl border border-base-300 z-50 flex flex-col overflow-hidden">
-                <div className="px-3 py-2 border-b border-base-200 font-semibold text-sm">History</div>
-                <div className="flex-1 overflow-y-auto p-2">
-                  <ActionHistoryPanel />
-                </div>
-              </div>
-            )}
           </div>
         </div>
         <div className="navbar-end gap-2">
@@ -215,11 +176,9 @@ function Navbar({ onZoomToNode, sidebarOpen, onToggleSidebar }) {
               <button>close</button>
             </form>
           </dialog>
-          <label className="btn btn-ghost btn-circle swap swap-rotate">
-            <input type="checkbox" className="theme-controller" value="dark" />
-            <Sun className="swap-off h-5 w-5" />
-            <Moon className="swap-on h-5 w-5" />
-          </label>
+          <button className="btn btn-ghost btn-circle" onClick={toggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
 
           {/* ---- Notifications dropdown ---- */}
           <div className="dropdown dropdown-end">

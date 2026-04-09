@@ -3,6 +3,7 @@ import { Trash2, CheckCircle2, Reply, Send } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 import MentionText from './MentionText'
 import MentionTextarea from './MentionTextarea'
+import { COMMENT_TAGS } from './CommentFormPopover'
 
 const UNDO_TIMEOUT = 5000
 
@@ -111,6 +112,14 @@ function CommentItem({ comment, compact = false }) {
           </button>
         </div>
         <p className="text-xs leading-relaxed ml-7"><MentionText text={comment.text} /></p>
+        {comment.tag && (() => {
+          const tagDef = COMMENT_TAGS.find((t) => t.value === comment.tag)
+          return tagDef ? (
+            <span className={`ml-7 mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${tagDef.color} text-white font-medium`}>
+              {tagDef.label}
+            </span>
+          ) : null
+        })()}
         {comment.replies.length > 0 && (
           <div className="ml-7 mt-2 border-l-2 border-base-300 pl-2.5 flex flex-col gap-1.5">
             {comment.replies.map((r) => {
@@ -195,6 +204,14 @@ function CommentItem({ comment, compact = false }) {
         )}
       </div>
       <p className="text-sm leading-relaxed mt-3"><MentionText text={comment.text} /></p>
+      {comment.tag && (() => {
+        const tagDef = COMMENT_TAGS.find((t) => t.value === comment.tag)
+        return tagDef ? (
+          <span className={`mt-2 inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ${tagDef.color} text-white font-medium`}>
+            {tagDef.label}
+          </span>
+        ) : null
+      })()}
 
       {comment.replies.length > 0 && (
         <div className="mt-3 border-t border-base-300 pt-3 flex flex-col gap-3">

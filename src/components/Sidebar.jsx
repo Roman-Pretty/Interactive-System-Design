@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, PanelLeftClose, MessageSquare, Shield, ShieldCheck, Crown, X } from 'lucide-react'
+import { Search, Plus, PanelLeftClose, MessageSquare, Shield, ShieldCheck, Crown, X, Filter, Check } from 'lucide-react'
 import { useGraph } from '../context/GraphContext'
 import { openShareModal } from './Navbar'
+import { COMMENT_TAGS } from './CommentFormPopover'
 
 const ROLE_ICON = {
   owner: Crown,
@@ -20,6 +21,7 @@ import SidebarContextMenu from './SidebarContextMenu'
 import AddNodeForm from './AddNodeForm'
 import CommentCard from './CommentCard'
 
+
 function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, renameValue, setRenameValue }) {
   const { nodes, currentParentId, breadcrumbs, navigateInto, addNode, users, currentUser, comments, ROLE_LABELS, isOwner, changeUserRole, removeUser, ROLES } = useGraph()
 
@@ -28,13 +30,24 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [expanded, setExpanded] = useState(new Set())
   const [sidebarMenu, setSidebarMenu] = useState(null)
-  const [commentFilter, setCommentFilter] = useState('open')
+  const [filterStatus, setFilterStatus] = useState('open')
+  const [filterUser, setFilterUser] = useState('all')
+  const [filterTag, setFilterTag] = useState('all')
+  const [filterOpen, setFilterOpen] = useState(false)
   const [ctxMenu, setCtxMenu] = useState(null)
   const ctxRef = useRef(null)
+  const filterRef = useRef(null)
+
+  const hasActiveFilter = filterStatus !== 'all' || filterUser !== 'all' || filterTag !== 'all'
 
   const filteredComments = comments.filter((c) => {
-    if (commentFilter === 'open') return !c.resolved
-    if (commentFilter === 'resolved') return c.resolved
+    if (filterStatus === 'open' && c.resolved) return false
+    if (filterStatus === 'resolved' && !c.resolved) return false
+    if (filterUser !== 'all' && c.authorId !== filterUser) return false
+    if (filterTag !== 'all') {
+      if (filterTag === 'none' && c.tag) return false
+      if (filterTag !== 'none' && c.tag !== filterTag) return false
+    }
     return true
   })
 
@@ -54,6 +67,16 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [ctxMenu])
+
+  // Close filter dropdown on outside click
+  useEffect(() => {
+    if (!filterOpen) return
+    const handler = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [filterOpen])
 
   const handleCollaboratorContextMenu = (e, user) => {
     if (!isOwner || user.id === currentUser.id) return
@@ -202,22 +225,103 @@ function Sidebar({ sidebarOpen, onClose, renamingNodeId, setRenamingNodeId, rena
       {/* ---- Divider ---- */}
       <div className="border-t border-base-300 my-3 shrink-0" />
 
-      {/* ---- Comments Section ---- */}
+      {/* ---- Comments ---- */}
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center justify-between mb-1 shrink-0">
-          <div className="breadcrumbs text-sm"><ul><li>Comments</li></ul></div>
-        </div>
         <div className="flex items-center justify-between mb-2 shrink-0">
-          <div className="flex gap-1">
-            {['open', 'resolved', 'all'].map((f) => (
-              <button
-                key={f}
-                className={`btn btn-ghost btn-xs ${commentFilter === f ? 'btn-active' : ''}`}
-                onClick={() => setCommentFilter(f)}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
+          <div className="breadcrumbs text-sm"><ul><li>Comments</li></ul></div>
+          <div className="relative" ref={filterRef}>
+            <button
+              className={`btn btn-ghost btn-xs ${hasActiveFilter ? 'text-base-content' : 'opacity-60 hover:opacity-100'}`}
+              onClick={() => setFilterOpen((v) => !v)}
+              title="Filter comments"
+            >
+              <Filter className="size-3.5" />
+            </button>
+            {filterOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-base-100 border border-base-300 rounded-lg shadow-xl z-50 py-1 min-w-48 max-h-72 overflow-y-auto">
+                {/* Status section */}
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-40">Status</div>
+                {[{ value: 'all', label: 'All' }, { value: 'open', label: 'Open' }, { value: 'resolved', label: 'Resolved' }].map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between`}
+                    onClick={() => setFilterStatus(opt.value)}
+                  >
+                    {opt.label}
+                    {filterStatus === opt.value && <Check className="size-3 opacity-70" />}
+                  </button>
+                ))}
+
+                <div className="border-t border-base-200 my-1" />
+
+                {/* User section */}
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-40">User</div>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between"
+                  onClick={() => setFilterUser('all')}
+                >
+                  All users
+                  {filterUser === 'all' && <Check className="size-3 opacity-70" />}
+                </button>
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between"
+                    onClick={() => setFilterUser(u.id)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <div className="avatar"><div className="w-4 rounded-full"><img src={u.avatar} alt={u.name} /></div></div>
+                      {u.name}
+                    </span>
+                    {filterUser === u.id && <Check className="size-3 opacity-70" />}
+                  </button>
+                ))}
+
+                <div className="border-t border-base-200 my-1" />
+
+                {/* Label section */}
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-40">Label</div>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between"
+                  onClick={() => setFilterTag('all')}
+                >
+                  All labels
+                  {filterTag === 'all' && <Check className="size-3 opacity-70" />}
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between"
+                  onClick={() => setFilterTag('none')}
+                >
+                  No label
+                  {filterTag === 'none' && <Check className="size-3 opacity-70" />}
+                </button>
+                {COMMENT_TAGS.map((tag) => (
+                  <button
+                    key={tag.value}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 flex items-center justify-between"
+                    onClick={() => setFilterTag(tag.value)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${tag.color}`} />
+                      {tag.label}
+                    </span>
+                    {filterTag === tag.value && <Check className="size-3 opacity-70" />}
+                  </button>
+                ))}
+
+                {hasActiveFilter && (
+                  <>
+                    <div className="border-t border-base-200 my-1" />
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-base-200 text-error flex items-center gap-2"
+                      onClick={() => { setFilterStatus('all'); setFilterUser('all'); setFilterTag('all'); setFilterOpen(false) }}
+                    >
+                      <X className="size-3" /> Clear all filters
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto flex flex-col gap-2 pb-2">

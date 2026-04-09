@@ -206,10 +206,10 @@ export function GraphProvider({ children }) {
   )
 
   // --- Comment operations ---
-  const addComment = useCallback((nodeId, text) => {
+  const addComment = useCallback((nodeId, text, tag = null) => {
     let comment
     refresh((d) => {
-      comment = storeAddComment(d, nodeId, d.currentUserId, text)
+      comment = storeAddComment(d, nodeId, d.currentUserId, text, tag)
       const nodeName = d.nodes.find((n) => n.id === nodeId)?.name || ''
       storeAddHistory(d, 'comment_added', d.currentUserId, { nodeName, text: text.slice(0, 80) })
     })

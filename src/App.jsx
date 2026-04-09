@@ -62,7 +62,7 @@ function App() {
       />
 
       <div className="flex-1 flex flex-col min-h-0">
-        <Navbar onZoomToNode={zoomToNode} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((o) => !o)} />
+        <Navbar onZoomToNode={zoomToNode} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((o) => !o)} isDark={isDark} />
         <GraphCanvas
           graphRef={graphRef}
           isDark={isDark}
