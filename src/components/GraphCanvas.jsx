@@ -12,7 +12,7 @@ import CommentTooltip from './CommentTooltip'
 
 function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onClearHighlight }) {
   const {
-    visibleNodes, edges, comments,
+    nodes, visibleNodes, edges, comments,
     currentParentId, navigateInto, navigateUp,
     addEdge, deleteNode,
     selectedNodeIds, selectNode, toggleSelectNode, clearSelection,
@@ -266,6 +266,30 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
     return map
   }, [comments, pendingResolveIds])
 
+  // Descendant comment counts for visible nodes
+  const nodeDescendantCommentCounts = useMemo(() => {
+    const map = {}
+    for (const vn of visibleNodes) {
+      const descendantIds = new Set()
+      const queue = [vn.id]
+      while (queue.length) {
+        const pid = queue.shift()
+        for (const n of nodes) {
+          if (n.parentId === pid) {
+            descendantIds.add(n.id)
+            queue.push(n.id)
+          }
+        }
+      }
+      let count = 0
+      for (const c of comments) {
+        if (descendantIds.has(c.nodeId) && !c.resolved && !pendingResolveIds.has(c.id)) count++
+      }
+      if (count > 0) map[vn.id] = count
+    }
+    return map
+  }, [nodes, visibleNodes, comments, pendingResolveIds])
+
   // ─── Node canvas rendering ───
   const nodeCanvasObject = useCallback((node, ctx) => {
     const radius = 20
@@ -318,7 +342,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
     ctx.fillStyle = contentColor
     ctx.fillText(node.name, node.x, node.y + radius + 4)
 
-    // Comment badge
+    // Comment badge (own comments)
     const cc = nodeCommentCounts[node.id]
     if (cc) {
       const bx = node.x + radius * 0.7
@@ -348,6 +372,39 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
       ctx.fillText(String(cc), bx + 3, by)
     }
 
+    // Descendant comment badge (grayed, comment icon, reduced opacity)
+    const dc = nodeDescendantCommentCounts[node.id]
+    if (dc) {
+      const dbx = node.x + radius * 0.7
+      const dby = node.y - radius * 0.7 + (cc ? 14 : 0)
+      ctx.save()
+      ctx.beginPath()
+      ctx.roundRect(dbx - 10, dby - 6, 20, 12, 6)
+      ctx.fillStyle = '#6b7280'
+      ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      // Comment bubble icon (same as own badge)
+      const ix = dbx - 4
+      ctx.beginPath()
+      ctx.roundRect(ix - 3, dby - 2.5, 5, 4, 1)
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
+      ctx.beginPath()
+      ctx.moveTo(ix - 2, dby + 1.5)
+      ctx.lineTo(ix - 3.5, dby + 3)
+      ctx.lineTo(ix, dby + 1.5)
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
+      ctx.font = 'bold 8px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(String(dc), dbx + 3, dby)
+      ctx.restore()
+    }
+
     // Handles on hover — grow the one the mouse is over
     const showHandles = (hoveredNodeId === node.id && !dragEdge)
       || (dragEdge && dragEdge.sourceId === node.id)
@@ -370,7 +427,7 @@ function GraphCanvas({ graphRef, isDark, onStartRename, highlightedNodeId, onCle
         ctx.stroke()
       })
     }
-  }, [contentColor, hoveredNodeId, hoveredHandle, dragEdge, nodeCommentCounts, highlightedNodeId, highlightTick, selectedNodeIds])
+  }, [contentColor, hoveredNodeId, hoveredHandle, dragEdge, nodeCommentCounts, nodeDescendantCommentCounts, highlightedNodeId, highlightTick, selectedNodeIds])
 
   // ─── Handlers ───
   const handleBackgroundRightClick = useCallback((event) => {

@@ -5,9 +5,49 @@ import GraphCanvas from './components/GraphCanvas'
 import { useGraph } from './context/GraphContext'
 import { useThemeDetection } from './hooks/useThemeDetection'
 
+const CORRECT_PASSWORD = 'roman10'
+
+function PasswordGate({ onUnlock }) {
+  const [input, setInput] = useState('')
+  const [error, setError] = useState(false)
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (input === CORRECT_PASSWORD) {
+      onUnlock()
+    } else {
+      setError(true)
+      setInput('')
+    }
+  }
+
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-gray-950">
+      <form onSubmit={handleSubmit} className="flex flex-col items-center gap-4">
+        <input
+          type="password"
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setError(false) }}
+          placeholder="Password"
+          autoFocus
+          className="border border-gray-300 dark:border-gray-700 rounded px-4 py-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 outline-none focus:border-gray-500 text-center tracking-widest"
+        />
+        {error && <span className="text-red-500 text-sm">Incorrect password</span>}
+        <button
+          type="submit"
+          className="px-6 py-2 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:opacity-80 transition-opacity"
+        >
+          Unlock
+        </button>
+      </form>
+    </div>
+  )
+}
+
 function App() {
   const { nodes, currentParentId, navigateInto } = useGraph()
 
+  const [unlocked, setUnlocked] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const isDark = useThemeDetection()
   const graphRef = useRef()
@@ -51,6 +91,9 @@ function App() {
   }, [])
 
   return (
+    <>
+      {!unlocked && <PasswordGate onUnlock={() => setUnlocked(true)} />}
+      {unlocked && (
     <div className="flex h-screen">
       <Sidebar
         sidebarOpen={sidebarOpen}
@@ -72,6 +115,8 @@ function App() {
         />
       </div>
     </div>
+      )}
+    </>
   )
 }
 
